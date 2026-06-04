@@ -1,0 +1,32 @@
+name: mist
+description: "A new Flutter project."
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.12.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  font_awesome_flutter: any
+  animate_do: any
+  path_provider: any
+  permission_handler: any
+  alarm: any
+  file_picker: ^11.0.2
+  audioplayers: ^6.6.0
+  webview_flutter: ^4.13.1
+  flutter_email_sender: ^8.0.0
+  feedback: ^3.2.0
+  vector_math: any
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/
