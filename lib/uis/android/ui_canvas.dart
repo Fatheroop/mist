@@ -57,52 +57,56 @@ class _CanvasHomeState extends State<CanvasHome> {
         maxScale: 2.5,
         constrained: false,
         boundaryMargin: const EdgeInsets.all(3000),
-        child: Stack(
-          clipBehavior: Clip.none,
-          children: [
-            ...widgets.map((e) {
-              return Positioned(
-                top: e.offset?.dy ?? 0.0,
-                left: e.offset?.dx ?? 0.0,
-                child: GestureDetector(
-                  onPanUpdate: (details) {
-                    setState(() {
-                      final index = widgets.indexOf(e);
-                      if (index != -1) {
-                        widgets[index] = CanvasWidget(
-                          id: e.id,
-                          widget: e.widget,
-                          color: e.color,
-                          width: e.width,
-                          height: e.height,
-                          offset: Offset(
-                            (e.offset?.dx ?? 0.0) + details.delta.dx,
-                            (e.offset?.dy ?? 0.0) + details.delta.dy,
-                          ),
-                          delete: e.delete,
-                          move: e.move,
-                        );
-                      }
-                    });
-                  },
-                  child: CanvasWidget(
-                    id: e.id,
-                    widget: e.widget,
-                    color: e.color,
-                    width: e.width,
-                    height: e.height,
-                    offset: e.offset,
-                    delete: () {
+        child: SizedBox(
+          width: 5000,
+          height: 5000,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              ...widgets.map((e) {
+                return Positioned(
+                  top: e.offset?.dy ?? 0.0,
+                  left: e.offset?.dx ?? 0.0,
+                  child: GestureDetector(
+                    onPanUpdate: (details) {
                       setState(() {
-                        widgets.remove(e);
+                        final index = widgets.indexOf(e);
+                        if (index != -1) {
+                          widgets[index] = CanvasWidget(
+                            id: e.id,
+                            widget: e.widget,
+                            color: e.color,
+                            width: e.width,
+                            height: e.height,
+                            offset: Offset(
+                              (e.offset?.dx ?? 0.0) + details.delta.dx,
+                              (e.offset?.dy ?? 0.0) + details.delta.dy,
+                            ),
+                            delete: e.delete,
+                            move: e.move,
+                          );
+                        }
                       });
                     },
-                    move: e.move,
+                    child: CanvasWidget(
+                      id: e.id,
+                      widget: e.widget,
+                      color: e.color,
+                      width: e.width,
+                      height: e.height,
+                      offset: e.offset,
+                      delete: () {
+                        setState(() {
+                          widgets.remove(e);
+                        });
+                      },
+                      move: e.move,
+                    ),
                   ),
-                ),
-              );
-            }),
-          ],
+                );
+              }),
+            ],
+          ),
         ),
       ),
       floatingActionButton: FloatingActionButton.extended(
