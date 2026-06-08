@@ -1,14 +1,18 @@
+import 'dart:io';
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:mist/repo/canvas.dart';
-import 'package:mist/uis/android/ui_folder.dart';
+import 'package:mist/uis/android/widgets/image_canvas_widget.dart';
+import 'package:mist/uis/android/widgets/text_canvas_widget.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Canvas Home — the main infinite-canvas screen for MIST
 // ─────────────────────────────────────────────────────────────────────────────
 
 class CanvasHome extends StatefulWidget {
-  const CanvasHome({super.key});
+  final File file;
+  const CanvasHome({super.key, required this.file});
 
   @override
   State<CanvasHome> createState() => _CanvasHomeState();
@@ -33,27 +37,19 @@ class _CanvasHomeState extends State<CanvasHome> {
   final List<CanvasNodeData> _nodes = [
     CanvasNodeData(
       id: 'untitled 1',
-      child: const Text('widget 1'),
       x: 100,
       y: 100,
       width: 300,
       height: 300,
+      canvasChild: TextCanvasWidgetData(text: "this is new child 1"),
     ),
     CanvasNodeData(
       id: 'untitled 2',
-      child: const UiFolderScreen(),
-      x: 450,
-      y: 150,
-      width: 300,
-      height: 300,
-    ),
-    CanvasNodeData(
-      id: 'untitled 3',
-      child: const Text('widget 3'),
       x: 150,
       y: 450,
       width: 300,
       height: 300,
+      canvasChild: TextCanvasWidgetData(text: "this is new chld 2"),
     ),
   ];
 
@@ -146,7 +142,7 @@ class _CanvasHomeState extends State<CanvasHome> {
 
   // ── Add node ───────────────────────────────────────────────────────────
 
-  void _addNode() {
+  void _addNode(CanvasWidgetChild child) {
     final RenderBox? box = context.findRenderObject() as RenderBox?;
     if (box == null) return;
     final center = _transformCtrl.toScene(
@@ -156,10 +152,7 @@ class _CanvasHomeState extends State<CanvasHome> {
 
     final newNode = CanvasNodeData(
       id: 'untitled $_nextId',
-      child: Padding(
-        padding: const EdgeInsets.all(8.0),
-        child: Text('widget $_nextId'),
-      ),
+      canvasChild: child,
       x: desired.dx,
       y: desired.dy,
     );
@@ -185,42 +178,84 @@ class _CanvasHomeState extends State<CanvasHome> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFFCFCFF),
-      body: InteractiveViewer(
-        transformationController: _transformCtrl,
-        minScale: 0.1,
-        maxScale: 3.0,
-        constrained: false,
-        panEnabled: !_isInteractingNode,
-        scaleEnabled: !_isInteractingNode,
-        child: SizedBox(
-          width: 10000,
-          height: 10000,
-          child: Container(
-            decoration: const BoxDecoration(
-              image: DecorationImage(
-                image: ResizeImage(
-                  AssetImage('assets/assets_image_1.png'),
-                  width: 2560,
-                  height: 1440,
-                  policy: ResizeImagePolicy.exact,
+      body: Stack(
+        children: [
+          Positioned.fill(
+            child: InteractiveViewer(
+              transformationController: _transformCtrl,
+              minScale: 0.1,
+              maxScale: 3.0,
+              constrained: false,
+              panEnabled: !_isInteractingNode,
+              scaleEnabled: !_isInteractingNode,
+              child: SizedBox(
+                width: 10000,
+                height: 10000,
+                child: Container(
+                  decoration: const BoxDecoration(
+                    image: DecorationImage(
+                      image: ResizeImage(
+                        AssetImage('assets/assets_image_1.png'),
+                        width: 2560,
+                        height: 1440,
+                        policy: ResizeImagePolicy.exact,
+                      ),
+                      fit: BoxFit.cover,
+                      filterQuality: FilterQuality.medium,
+                    ),
+                  ),
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    children: _nodes
+                        .map((node) => _buildNodeWidget(node))
+                        .toList(),
+                  ),
                 ),
-                fit: BoxFit.cover,
-                filterQuality: FilterQuality.medium,
               ),
             ),
-            child: Stack(
-              clipBehavior: Clip.none,
-              children: _nodes.map((node) => _buildNodeWidget(node)).toList(),
-            ),
           ),
-        ),
+          Positioned(
+            bottom: 10,
+            left: 0,
+            right: 0,
+            child: Center(child: _addNotedashBoard()),
+          ),
+        ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _addNode,
-        label: const Text('Add Node'),
-        icon: const Icon(Icons.add_rounded),
-        backgroundColor: Colors.indigoAccent,
+    );
+  }
+
+  Widget _addNotedashBoard() {
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 20, vertical: 5),
+      margin: EdgeInsets.symmetric(horizontal: 30, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color.fromARGB(93, 47, 47, 47),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color.fromARGB(110, 255, 255, 255)),
       ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // nodes in list = images, hyperlink, webview, shortcut's , video, audio, tasks, text's canvas, button canvas, link to another canvas.
+          _builddashboardbuttons(FontAwesomeIcons.penToSquare, () {}),
+          _builddashboardbuttons(FontAwesomeIcons.penClip, () {
+            _addNode(TextCanvasWidgetData(text: "this is new child 3"));
+          }),
+          _builddashboardbuttons(FontAwesomeIcons.link, () {}),
+          _builddashboardbuttons(FontAwesomeIcons.video, () {}),
+          _builddashboardbuttons(FontAwesomeIcons.fileImage, () {
+            _addNode(ImageCanvasWidgetData());
+          }),
+        ],
+      ),
+    );
+  }
+
+  Widget _builddashboardbuttons(FaIconData icon, VoidCallback onPressed) {
+    return IconButton(
+      onPressed: onPressed,
+      icon: FaIcon(icon, size: 22, color: Colors.white70),
     );
   }
 
@@ -241,7 +276,7 @@ class _CanvasHomeState extends State<CanvasHome> {
               Positioned.fill(
                 child: Container(
                   decoration: BoxDecoration(
-                    color: const Color(0xCC313131),
+                    color: const Color.fromARGB(200, 0, 0, 0),
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(
                       color: Colors.white.withValues(alpha: 0.12),
@@ -249,8 +284,13 @@ class _CanvasHomeState extends State<CanvasHome> {
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.3),
-                        blurRadius: 12,
+                        color: const Color.fromARGB(
+                          255,
+                          245,
+                          245,
+                          245,
+                        ).withValues(alpha: 0.3),
+                        blurRadius: 22,
                         offset: const Offset(0, 4),
                       ),
                     ],
@@ -277,6 +317,7 @@ class _CanvasHomeState extends State<CanvasHome> {
                     );
                     setState(() => _isInteractingNode = true);
                   },
+
                   onPanEnd: (_) {
                     final snap = _findFreePosition(
                       Offset(node.x, node.y),
@@ -374,8 +415,8 @@ class _CanvasHomeState extends State<CanvasHome> {
                 right: 0,
                 bottom: 0,
                 child: Container(
-                  decoration: const BoxDecoration(
-                    color: Color.fromARGB(175, 49, 49, 49),
+                  decoration: BoxDecoration(
+                    color: Color.fromARGB(143, 0, 0, 0),
                     borderRadius: BorderRadius.only(
                       bottomLeft: Radius.circular(16),
                       bottomRight: Radius.circular(16),
@@ -386,7 +427,7 @@ class _CanvasHomeState extends State<CanvasHome> {
                       padding: const EdgeInsets.all(12.0),
                       child: DefaultTextStyle(
                         style: const TextStyle(color: Colors.white),
-                        child: node.child,
+                        child: node.canvasChild.buildWidget(isPreview: true),
                       ),
                     ),
                   ),

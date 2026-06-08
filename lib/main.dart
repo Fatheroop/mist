@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:mist/logic/unviersalvariables.dart';
 import 'package:mist/uis/android/ui_home.dart';
+import 'package:mist/uis/android/widgets/image_canvas_widget.dart';
+import 'package:mist/uis/android/widgets/text_canvas_widget.dart';
 import 'package:alarm/alarm.dart';
 import 'package:feedback/feedback.dart';
 
@@ -8,6 +10,10 @@ import 'package:feedback/feedback.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Alarm.init();
+
+  // Register all canvas widget types for serialisation/deserialisation.
+  TextCanvasWidgetData.register();
+  ImageCanvasWidgetData.register();
   runApp(
     BetterFeedback(
       theme: FeedbackThemeData(

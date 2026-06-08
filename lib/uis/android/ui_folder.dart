@@ -122,6 +122,26 @@ class _UiFolderScreenState extends State<UiFolderScreen> {
     }
   }
 
+  Future<void> _createNewCanvas(String name) async {
+    final file = await _logic.createNewCanvas(
+      name,
+      onError: (err) {
+        _showPremiumToast(err, isError: true);
+      },
+    );
+    if (file != null) {
+      _showPremiumToast("Canvas '$name' created!");
+      if (mounted) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => CanvasHome(file: file),
+          ),
+        ).then((_) => _logic.refreshFiles());
+      }
+    }
+  }
+
   Future<void> _deleteEntity(FileSystemEntity entity) async {
     final name = entity.path.split('/').last.replaceAll(".txt", "");
     final err = await _logic.deleteEntity(entity);
@@ -1366,6 +1386,86 @@ class _UiFolderScreenState extends State<UiFolderScreen> {
     );
   }
 
+  void _showCreateCanvasDialog() {
+    String canvasName = "";
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+          child: AlertDialog(
+            backgroundColor: const Color(0xFF131324),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(24),
+            ),
+            title: const Row(
+              children: [
+                FaIcon(
+                  FontAwesomeIcons.borderAll,
+                  color: Colors.orangeAccent,
+                  size: 18,
+                ),
+                SizedBox(width: 10),
+                Text(
+                  "Create Canvas",
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+            content: TextField(
+              onChanged: (val) => canvasName = val,
+              style: const TextStyle(color: Colors.white),
+              cursorColor: Colors.orangeAccent,
+              decoration: InputDecoration(
+                hintText: "Enter canvas name...",
+                hintStyle: const TextStyle(color: Colors.white30),
+                filled: true,
+                fillColor: Colors.white.withValues(alpha: 0.03),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  borderSide: BorderSide(
+                    color: Colors.white.withValues(alpha: 0.08),
+                  ),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  borderSide: const BorderSide(color: Colors.orangeAccent),
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text(
+                  "Cancel",
+                  style: TextStyle(color: Colors.white54),
+                ),
+              ),
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  _createNewCanvas(canvasName.trim());
+                },
+                child: const Text(
+                  "Create",
+                  style: TextStyle(
+                    color: Colors.orangeAccent,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   void _showOperationsSheet(FileSystemEntity item) {
     final isDir = item is Directory;
     final name = item.path.split('/').last.replaceAll(".txt", "");
@@ -1975,12 +2075,7 @@ class _UiFolderScreenState extends State<UiFolderScreen> {
             label: "Canvas",
             icon: FontAwesomeIcons.borderAll,
             color: Colors.orangeAccent,
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const CanvasHome()),
-              );
-            },
+            onTap: _showCreateCanvasDialog,
           ),
         ],
       ),

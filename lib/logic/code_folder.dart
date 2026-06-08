@@ -362,6 +362,34 @@ class CodeFolder extends ChangeNotifier {
     return await file.readAsString();
   }
 
+  /// Create a new `.canvas` file in the current directory.
+  /// Returns the created [File] on success, or null if there was an error.
+  Future<File?> createNewCanvas(
+    String name, {
+    required void Function(String err) onError,
+  }) async {
+    if (currentDirectory == null) return null;
+    var cleanName = name.replaceAll(RegExp(r'[\\/:*?"<>|]'), "").trim();
+    if (cleanName.isEmpty) cleanName = "Untitled Canvas";
+
+    final dir = effectiveDirectory;
+    final file = File('${dir.path}/$cleanName.canvas');
+    if (await file.exists()) {
+      onError("A canvas with this name already exists");
+      return null;
+    }
+
+    try {
+      // Create an empty canvas file (empty JSON array)
+      await file.writeAsString('[]');
+      await refreshFiles();
+      return file;
+    } catch (e) {
+      onError("Failed to create canvas: $e");
+      return null;
+    }
+  }
+
   Future<String?> deleteEntity(FileSystemEntity entity) async {
     try {
       await entity.delete(recursive: true);
@@ -377,7 +405,20 @@ class CodeFolder extends ChangeNotifier {
     if (cleanName.isEmpty) return "Name cannot be empty";
 
     final parentPath = entity.parent.path;
-    final extension = entity is File ? ".txt" : "";
+
+    // Preserve the original file extension
+    String extension = "";
+    if (entity is File) {
+      final path = entity.path;
+      if (path.endsWith('.canvas')) {
+        extension = ".canvas";
+      } else if (path.endsWith('.flashcard')) {
+        extension = ".flashcard";
+      } else {
+        extension = ".txt";
+      }
+    }
+
     final newPath = '$parentPath/$cleanName$extension';
 
     try {
