@@ -215,7 +215,6 @@ class _UiFlashCardsState extends State<UiFlashCards>
                     color: Colors.white30,
                     size: 16,
                   ),
-                  splashRadius: 16,
                 ),
               ],
             ),

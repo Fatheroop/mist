@@ -26,30 +26,44 @@ class _StudyNoteEditorScreenState extends State<StudyNoteEditorScreen> {
   int charCount = 0;
   Timer? time;
 
+  /// Mutable reference to the current file — updated after renames so that
+  /// subsequent saves always write to the correct path instead of recreating
+  /// the original file (which was the root cause of duplicates).
+  late File _currentFile;
+
   @override
   void initState() {
     super.initState();
+    _currentFile = widget.file;
     _loadNoteData();
     _bodyController.addListener(_updateCounts);
     time = Timer.periodic(const Duration(seconds: 5), (_) {
-      _saveNote();
+      // Guard: skip if a save is already in flight to prevent race conditions
+      if (!isSaving) {
+        _saveNote();
+      }
     });
   }
 
   @override
   void dispose() {
     time?.cancel();
+    // Final save on dispose to capture any last-second edits.
+    // Use the sync path to guarantee it completes before teardown.
+    try {
+      _currentFile.writeAsStringSync(_bodyController.text);
+    } catch (_) {}
     _titleController.dispose();
     _bodyController.dispose();
     super.dispose();
   }
 
   void _loadNoteData() {
-    final title = widget.file.path.split('/').last.replaceAll(".txt", "");
+    final title = _currentFile.path.split('/').last.replaceAll(".txt", "");
     _titleController.text = title;
 
     try {
-      final content = widget.file.readAsStringSync();
+      final content = _currentFile.readAsStringSync();
       _bodyController.text = content;
     } catch (_) {}
     _updateCounts();
@@ -66,54 +80,81 @@ class _StudyNoteEditorScreenState extends State<StudyNoteEditorScreen> {
   }
 
   Future<void> _saveNote() async {
+    if (isSaving) return; // Prevent concurrent saves
     setState(() {
       isSaving = true;
     });
 
     try {
-      // Save Body Content
-      await widget.file.writeAsString(_bodyController.text);
-
-      // Save Title Content (rename file if title changed!)
+      // 1. Compute the desired title (sanitised, clamped)
       var cleanTitle = _titleController.text
           .replaceAll(RegExp(r'[\\/:*?"<>|]'), "")
           .trim();
 
       if (cleanTitle.length > 40) {
-        cleanTitle = "${cleanTitle.substring(0, 20)}...";
+        cleanTitle = cleanTitle.substring(0, 40);
       }
-      final currentTitle = widget.file.path
+      if (cleanTitle.isEmpty) {
+        cleanTitle = "Untitled Note";
+      }
+
+      // 2. Determine current on-disk title from _currentFile
+      final currentTitle = _currentFile.path
           .split('/')
           .last
           .replaceAll(".txt", "");
-      if (_checksamefileexist(widget.file, cleanTitle)) {
+
+      // 3. Always write body content to the CURRENT file first
+      await _currentFile.writeAsString(_bodyController.text);
+
+      // 4. If the title hasn't changed, we're done
+      if (cleanTitle == currentTitle) {
         widget.onSave();
         return;
       }
-      if (cleanTitle.isNotEmpty && cleanTitle != currentTitle) {
-        final parentPath = widget.file.parent.path;
-        final newPath = '$parentPath/$cleanTitle.txt';
-        await widget.file.rename(newPath);
+
+      // 5. Title changed — check for name collision with OTHER files
+      if (_checkDuplicateExists(cleanTitle)) {
+        // A different file with this name already exists; don't rename.
+        widget.onSave();
+        return;
       }
+
+      // 6. Perform the rename and UPDATE _currentFile to the new path
+      final parentPath = _currentFile.parent.path;
+      final newPath = '$parentPath/$cleanTitle.txt';
+      final renamedFile = await _currentFile.rename(newPath);
+      _currentFile = renamedFile;
+
       widget.onSave();
     } catch (_) {}
 
-    setState(() {
-      isSaving = false;
-    });
+    if (mounted) {
+      setState(() {
+        isSaving = false;
+      });
+    }
   }
 
-  bool _checksamefileexist(File file, String title) {
+  /// Returns true if a DIFFERENT file with `title.txt` already exists in the
+  /// same directory. Excludes the current file from the check by comparing
+  /// paths (not object identity, which was the old bug).
+  bool _checkDuplicateExists(String title) {
     try {
-      List<FileSystemEntity> files = file.parent.listSync();
-      for (FileSystemEntity f in files) {
-        String filename = f.path.split("/").last;
+      final currentPath = _currentFile.path;
+      final files = _currentFile.parent.listSync();
+      for (final f in files) {
+        // Skip the file we're currently editing
+        if (f.path == currentPath) continue;
+        final filename = f.path.split("/").last;
         if (filename == "$title.txt") {
-          showPremiumToast(
-            context,
-            "Same name file exists: $filename",
-            isError: true,
-          );
+          if (mounted) {
+            showPremiumToast(
+              context,
+              "Same name file exists: $filename",
+              isError: true,
+            );
+          }
           return true;
         }
       }

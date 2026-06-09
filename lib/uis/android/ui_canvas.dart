@@ -33,7 +33,7 @@ class _CanvasHomeState extends State<CanvasHome> {
 
   /// Gap (canvas px) enforced between nodes.
   static const double _nodeGap = 16.0;
-  late Timer _autosave;
+  Timer? _autosave;
 
   // ── Nodes ──────────────────────────────────────────────────────────────
   List<CanvasNodeData> _nodes = [
@@ -67,8 +67,9 @@ class _CanvasHomeState extends State<CanvasHome> {
     await CanvasFileManager.load(widget.file).then((data) {
       _nodes = data;
     });
+    if (!mounted) return;
     setState(() {});
-    _autosave = Timer.periodic(Duration(seconds: 4), (time) {
+    _autosave = Timer.periodic(const Duration(seconds: 4), (time) {
       CanvasFileManager.save(_nodes, widget.file);
     });
   }
@@ -78,7 +79,9 @@ class _CanvasHomeState extends State<CanvasHome> {
   @override
   void dispose() {
     _transformCtrl.dispose();
-    _autosave.cancel();
+    _autosave?.cancel();
+    // Final save on dispose to prevent data loss
+    CanvasFileManager.save(_nodes, widget.file);
     super.dispose();
   }
 

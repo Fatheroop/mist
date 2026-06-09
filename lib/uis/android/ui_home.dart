@@ -57,56 +57,55 @@ class _UIHomeState extends State<UIHome> with WidgetsBindingObserver {
     super.dispose();
   }
 
-  void _showAlarmOverlay(dynamic settings) {
-    if (settings == null) return;
+  void _showAlarmOverlay(AlarmSettings alarmSettings) {
     if (UiAlarmNotification.active || _isPushingRoute) return;
     if (!mounted) return;
     _isPushingRoute = true;
 
-    debugPrint(
-      "🔔 _showAlarmOverlay triggered, settings type: ${settings.runtimeType}",
-    );
+    debugPrint("🔔 _showAlarmOverlay triggered, alarm ID: ${alarmSettings.id}");
 
-    dynamic alarmSettings = settings;
-    try {
-      if (settings.alarms != null) {
-        if (settings.alarms.isEmpty) {
-          _isPushingRoute = false;
-          return;
-        }
-        alarmSettings = settings.alarms.first;
-      }
-    } catch (_) {}
-
-    debugPrint(
-      "🔔 Alarm ID: ${alarmSettings.id}, navigating to notification screen...",
-    );
-
-    AlarmModal? payloadAlarm;
-    if (alarmSettings.payload != null && alarmSettings.payload.isNotEmpty) {
+    // 1. Try to decode AlarmModal from the payload (most reliable path)
+    AlarmModal? alarmModel;
+    final payload = alarmSettings.payload;
+    if (payload != null && payload.isNotEmpty) {
       try {
-        final parsed =
-            jsonDecode(alarmSettings.payload) as Map<String, dynamic>;
-        payloadAlarm = AlarmModal.fromJson(parsed);
+        final parsed = jsonDecode(payload) as Map<String, dynamic>;
+        alarmModel = AlarmModal.fromJson(parsed);
       } catch (e) {
         debugPrint("🔔 Error decoding AlarmModal from payload: $e");
       }
     }
 
-    final alarmModel =
-        payloadAlarm ??
-        context.read<AlarmsCubit>().state.alarms.firstWhere(
+    // 2. If payload decoding failed, search cubit state by alarm ID hash
+    alarmModel ??= () {
+      try {
+        return context.read<AlarmsCubit>().state.alarms.firstWhere(
           (element) =>
               (element.title.hashCode & 0x7FFFFFFF) == alarmSettings.id,
-          orElse: () => AlarmModal(
-            time:
-                "${alarmSettings.dateTime.hour.toString().padLeft(2, '0')}:${alarmSettings.dateTime.minute.toString().padLeft(2, '0')}",
-            period: alarmSettings.dateTime.hour >= 12 ? "PM" : "AM",
-            title: alarmSettings.notificationSettings.body,
-            audiopath: alarmSettings.assetAudioPath ?? '',
-            isActive: true,
-          ),
         );
+      } catch (_) {
+        // No matching alarm found in cubit state — build a fallback
+        // Extract clean title from notification body if possible
+        String fallbackTitle = "Alarm";
+        final body = alarmSettings.notificationSettings.body;
+        if (body.isNotEmpty) {
+          final match = RegExp(r"'(.+?)'").firstMatch(body);
+          if (match != null) {
+            fallbackTitle = match.group(1) ?? fallbackTitle;
+          } else {
+            fallbackTitle = body;
+          }
+        }
+        return AlarmModal(
+          time:
+              "${alarmSettings.dateTime.hour.toString().padLeft(2, '0')}:${alarmSettings.dateTime.minute.toString().padLeft(2, '0')}",
+          period: alarmSettings.dateTime.hour >= 12 ? "PM" : "AM",
+          title: fallbackTitle,
+          audiopath: alarmSettings.assetAudioPath ?? '',
+          isActive: true,
+        );
+      }
+    }();
 
     try {
       final navState = Unviersalvariables().navigatorKey.currentState;
@@ -115,7 +114,7 @@ class _UIHomeState extends State<UIHome> with WidgetsBindingObserver {
             .push(
               MaterialPageRoute(
                 builder: (context) => UiAlarmNotification(
-                  alarm: alarmModel,
+                  alarm: alarmModel!,
                   settings: alarmSettings,
                 ),
                 fullscreenDialog: true,
@@ -131,8 +130,10 @@ class _UIHomeState extends State<UIHome> with WidgetsBindingObserver {
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) =>
-                UiAlarmNotification(alarm: alarmModel, settings: alarmSettings),
+            builder: (context) => UiAlarmNotification(
+              alarm: alarmModel!,
+              settings: alarmSettings,
+            ),
             fullscreenDialog: true,
           ),
         ).then((_) {
@@ -287,7 +288,9 @@ class _UIHomeState extends State<UIHome> with WidgetsBindingObserver {
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(28),
                           border: Border.all(color: Colors.white70, width: 1.5),
-                          color: const Color(0xFF0C0C16).withValues(alpha: 0.92),
+                          color: const Color(
+                            0xFF0C0C16,
+                          ).withValues(alpha: 0.92),
                         ),
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.spaceAround,

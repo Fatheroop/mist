@@ -17,16 +17,18 @@ class _UiTasksState extends State<UiTasks> {
   final Map<String, TextEditingController> _controllers = {};
   final Map<String, FocusNode> _focusNodes = {};
   Timer? _saveTimer;
+  late final TasksCubit _tasksCubit;
 
   @override
   void initState() {
     super.initState();
-    final tasks = context.read<TasksCubit>().state.tasks;
+    _tasksCubit = context.read<TasksCubit>();
+    final tasks = _tasksCubit.state.tasks;
     _updateControllers(tasks);
 
     // Auto-focus the first incomplete item after build
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final state = context.read<TasksCubit>().state;
+      final state = _tasksCubit.state;
       if (state.tasks.isNotEmpty) {
         _focusNodes[state.tasks[0].id]?.requestFocus();
       }
@@ -35,7 +37,7 @@ class _UiTasksState extends State<UiTasks> {
     // Automatically save tasks to storage every 5 seconds
     _saveTimer = Timer.periodic(const Duration(seconds: 5), (_) {
       if (mounted) {
-        context.read<TasksCubit>().saveTasks();
+        _tasksCubit.saveTasks();
       }
     });
   }
@@ -43,7 +45,7 @@ class _UiTasksState extends State<UiTasks> {
   @override
   void dispose() {
     _saveTimer?.cancel();
-    context.read<TasksCubit>().saveTasks();
+    _tasksCubit.saveTasks();
     for (final controller in _controllers.values) {
       controller.dispose();
     }
@@ -75,7 +77,7 @@ class _UiTasksState extends State<UiTasks> {
       if (!_controllers.containsKey(task.id)) {
         final controller = TextEditingController(text: task.text);
         controller.addListener(() {
-          context.read<TasksCubit>().updateTaskText(task.id, controller.text);
+          _tasksCubit.updateTaskText(task.id, controller.text);
         });
         _controllers[task.id] = controller;
       }
@@ -510,7 +512,6 @@ class _UiTasksState extends State<UiTasks> {
                   Icons.check_rounded,
                   color: Color(0xFF0F0F15),
                   size: 13,
-                  weight: 3,
                 ),
               ),
             ),
@@ -600,7 +601,6 @@ class _UiTasksState extends State<UiTasks> {
             onPressed: () {
               context.read<TasksCubit>().deleteTask(item.id);
             },
-            splashRadius: 14,
             tooltip: "Delete task",
           ),
         ],

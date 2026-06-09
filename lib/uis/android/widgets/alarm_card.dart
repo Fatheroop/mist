@@ -3,10 +3,10 @@ import 'package:mist/repo/models.dart';
 
 class AlarmCardWidget extends StatelessWidget {
   final AlarmModal alarm;
-  final VoidCallback onTap;
+  final Future<void> Function() onTap;
   final VoidCallback onDoubleTap;
   final Future<bool?> Function(DismissDirection) confirmDismiss;
-  final VoidCallback onDismissed;
+  final Future<void> Function() onDismissed;
 
   const AlarmCardWidget({
     super.key,
@@ -26,7 +26,7 @@ class AlarmCardWidget extends StatelessWidget {
           key: Key(alarm.title),
           confirmDismiss: confirmDismiss,
           direction: DismissDirection.horizontal,
-          onDismissed: (_) => onDismissed(),
+          onDismissed: (_) async => await onDismissed(),
           background: Container(
             alignment: Alignment.centerLeft,
             padding: const EdgeInsets.only(left: 20),

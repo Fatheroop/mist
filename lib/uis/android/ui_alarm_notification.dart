@@ -265,15 +265,31 @@ class _UiAlarmNotificationState extends State<UiAlarmNotification>
                         ),
                         child: TextButton(
                           onPressed: () async {
-                            // Stop the currently ringing alarm FIRST to prevent
-                            // race conditions with rescheduling
+                            // 1. Stop the currently ringing alarm FIRST
                             await Alarm.stop(widget.settings.id);
-                            // Turn active off in state manager if repeatType is Once
-                            // Keep active and reschedule if it's a repeating alarm
-                            widget.alarm.isActive = widget.alarm.repeatType != "Once";
-                            await AlarmsCubit.instance.updateAlarm(
-                              widget.alarm,
-                            );
+
+                            // 2. Find the real alarm in cubit state by ID hash
+                            //    (widget.alarm.title may be a fallback that doesn't
+                            //    match any stored alarm)
+                            final alarmsCubit = AlarmsCubit.instance;
+                            final alarmId = widget.settings.id;
+                            AlarmModal? storedAlarm;
+                            try {
+                              storedAlarm = alarmsCubit.state.alarms.firstWhere(
+                                (a) => (a.title.hashCode & 0x7FFFFFFF) == alarmId,
+                              );
+                            } catch (_) {
+                              // No match found — use the widget alarm as fallback
+                              storedAlarm = widget.alarm;
+                            }
+
+                            // 3. Deactivate if it's a one-time alarm, 
+                            //    keep active and reschedule if repeating
+                            if (storedAlarm.repeatType == "Once") {
+                              storedAlarm.isActive = false;
+                            }
+                            await alarmsCubit.updateAlarm(storedAlarm);
+
                             if (context.mounted) {
                               Navigator.of(context).pop();
                             }

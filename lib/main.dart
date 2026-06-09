@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:mist/logic/unviersalvariables.dart';
 import 'package:mist/logic/navigation_cubit.dart';
@@ -50,18 +49,12 @@ Future<void> main() async {
       ),
       child: MultiBlocProvider(
         providers: [
-          BlocProvider<NavigationCubit>(
-            create: (context) => NavigationCubit(),
-          ),
-          BlocProvider<FolderCubit>(
-            create: (context) => FolderCubit(),
-          ),
+          BlocProvider<NavigationCubit>(create: (context) => NavigationCubit()),
+          BlocProvider<FolderCubit>(create: (context) => FolderCubit()),
           BlocProvider<AlarmsCubit>(
             create: (context) => AlarmsCubit()..getData(),
           ),
-          BlocProvider<TasksCubit>(
-            create: (context) => TasksCubit(),
-          ),
+          BlocProvider<TasksCubit>(create: (context) => TasksCubit()),
         ],
         child: const MainApp(),
       ),
@@ -77,11 +70,6 @@ class MainApp extends StatelessWidget {
     return MaterialApp(
       navigatorKey: Unviersalvariables().navigatorKey,
       debugShowCheckedModeBanner: false,
-      // showPerformanceOverlay: true,
-      shortcuts: <ShortcutActivator, Intent>{
-        SingleActivator(control: true, LogicalKeyboardKey.keyS):
-            VoidCallbackIntent(() {}),
-      },
       theme: ThemeData.dark(),
       home: const UIHome(),
     );
