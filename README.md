@@ -5,6 +5,7 @@ MIST is a premium, Obsidian-themed dark mode Alarm and Focus Reminder applicatio
 ---
 
 ## 📂 Project Architecture & Component Map
+---
 
 The application logic is clean and decoupled into three primary tiers:
 
