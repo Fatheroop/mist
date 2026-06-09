@@ -2,52 +2,92 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:mist/repo/permission_handler.dart';
 
-class CodeFolder extends ChangeNotifier {
-  // singleton class
-  static final CodeFolder _instance = CodeFolder._();
-  static CodeFolder get instance => _instance;
-  CodeFolder._();
+class FolderState {
+  final Directory? baseDirectory;
+  final Directory? currentDirectory;
+  final List<FileSystemEntity> items;
+  final bool isStoragePermissionGranted;
+  final bool isLoading;
+  final bool isDecoyActive;
+  final String? errorMessage;
 
-  Directory? baseDirectory;
-  Directory? currentDirectory;
-  List<FileSystemEntity> items = [];
-  bool isStoragePermissionGranted = false;
-  bool isLoading = true;
-  bool isDecoyActive = false;
+  FolderState({
+    this.baseDirectory,
+    this.currentDirectory,
+    this.items = const [],
+    this.isStoragePermissionGranted = false,
+    this.isLoading = true,
+    this.isDecoyActive = false,
+    this.errorMessage,
+  });
 
-  Directory get effectiveDirectory {
-    if (isDecoyActive && currentDirectory != null) {
+  Directory? get effectiveDirectory {
+    if (currentDirectory == null) return null;
+    if (isDecoyActive) {
       if (!currentDirectory!.path.contains('/.decoy_data')) {
         return Directory('${currentDirectory!.path}/.decoy_data');
       }
     }
-    return currentDirectory!;
+    return currentDirectory;
   }
 
   bool get isRoot => currentDirectory?.path == baseDirectory?.path;
 
+  FolderState copyWith({
+    Directory? baseDirectory,
+    Directory? currentDirectory,
+    List<FileSystemEntity>? items,
+    bool? isStoragePermissionGranted,
+    bool? isLoading,
+    bool? isDecoyActive,
+    String? errorMessage,
+  }) {
+    return FolderState(
+      baseDirectory: baseDirectory ?? this.baseDirectory,
+      currentDirectory: currentDirectory ?? this.currentDirectory,
+      items: items ?? this.items,
+      isStoragePermissionGranted: isStoragePermissionGranted ?? this.isStoragePermissionGranted,
+      isLoading: isLoading ?? this.isLoading,
+      isDecoyActive: isDecoyActive ?? this.isDecoyActive,
+      errorMessage: errorMessage,
+    );
+  }
+}
+
+class FolderCubit extends Cubit<FolderState> {
+  FolderCubit() : super(FolderState());
+
+  List<FileSystemEntity> get items => state.items;
+  Directory? get baseDirectory => state.baseDirectory;
+  Directory? get currentDirectory => state.currentDirectory;
+  bool get isStoragePermissionGranted => state.isStoragePermissionGranted;
+  bool get isLoading => state.isLoading;
+  bool get isDecoyActive => state.isDecoyActive;
+  set isDecoyActive(bool active) => setDecoyActive(active);
+  bool get isRoot => state.isRoot;
+
   Future<void> checkPermissionAndInit() async {
     final granted = await PermissionHandler().checkStoragePermission();
-    isStoragePermissionGranted = granted;
-    notifyListeners();
+    emit(state.copyWith(
+      isStoragePermissionGranted: granted,
+      isLoading: granted,
+    ));
 
     if (granted) {
       await initVaultDirectory();
     } else {
-      isLoading = false;
-      notifyListeners();
+      emit(state.copyWith(isLoading: false));
     }
   }
 
   Future<void> initVaultDirectory() async {
-    isLoading = true;
-    notifyListeners();
+    emit(state.copyWith(isLoading: true));
 
-    // Multiplatform directory fallback
     Directory? externalDir;
     if (Platform.isAndroid || Platform.isIOS) {
       try {
@@ -56,34 +96,36 @@ class CodeFolder extends ChangeNotifier {
     }
     externalDir ??= await getApplicationDocumentsDirectory();
 
-    // Get external storage root to persist data even after app uninstall
     String rootPath = externalDir.path;
-    debugPrint("CodeFolder: external storage path: $rootPath");
+    debugPrint("FolderCubit: external storage path: $rootPath");
     if (rootPath.contains('/Android/data')) {
       rootPath = rootPath.split('/Android/data').first;
     }
 
-    baseDirectory = Directory('$rootPath/StudentMist');
-    if (!await baseDirectory!.exists()) {
-      await baseDirectory!.create(recursive: true);
+    final baseDir = Directory('$rootPath/StudentMist');
+    if (!await baseDir.exists()) {
+      await baseDir.create(recursive: true);
     }
-    currentDirectory = baseDirectory;
+    emit(state.copyWith(
+      baseDirectory: baseDir,
+      currentDirectory: baseDir,
+    ));
     await refreshFiles();
   }
 
   Future<void> refreshFiles({void Function(String err)? onError}) async {
-    if (currentDirectory == null) return;
+    final curDir = state.currentDirectory;
+    if (curDir == null) return;
 
-    isLoading = true;
-    notifyListeners();
+    emit(state.copyWith(isLoading: true));
 
     try {
-      final dir = effectiveDirectory;
-      if (isDecoyActive && !dir.existsSync()) {
+      final dir = state.effectiveDirectory!;
+      if (state.isDecoyActive && !dir.existsSync()) {
         dir.createSync(recursive: true);
       }
 
-      if (isDecoyActive && dir.existsSync()) {
+      if (state.isDecoyActive && dir.existsSync()) {
         final defaultDecoy = File('${dir.path}/Public Study Notes.txt');
         if (!defaultDecoy.existsSync()) {
           defaultDecoy.writeAsStringSync(
@@ -97,32 +139,30 @@ class CodeFolder extends ChangeNotifier {
       }
 
       final list = dir.listSync();
-      // Exclude hidden files
       final filteredList = list.where((entity) {
         final name = entity.path.split('/').last;
         return !name.startsWith('.');
       }).toList();
 
-      // Sort: Folders first, then note files
       filteredList.sort((a, b) {
         if (a is Directory && b is File) return -1;
         if (a is File && b is Directory) return 1;
         return a.path.compareTo(b.path);
       });
 
-      items = filteredList;
-      isLoading = false;
-      notifyListeners();
+      emit(state.copyWith(
+        items: filteredList,
+        isLoading: false,
+      ));
     } catch (e) {
-      isLoading = false;
-      notifyListeners();
+      emit(state.copyWith(isLoading: false));
       if (onError != null) {
         onError("Error reading directory: $e");
       }
     }
   }
 
-  // Vault Config Helpers (JSON metadata)
+  // Vault Config Helpers
   bool isFolderLocked(Directory dir) {
     final metaFile = File('${dir.path}/.vault_meta');
     if (metaFile.existsSync()) {
@@ -132,7 +172,6 @@ class CodeFolder extends ChangeNotifier {
         return data['isLocked'] ?? false;
       } catch (_) {}
     }
-    // Fallback to legacy passcode lock file
     final lockFile = File('${dir.path}/.vault_lock');
     return lockFile.existsSync();
   }
@@ -146,7 +185,6 @@ class CodeFolder extends ChangeNotifier {
         return data['pin']?.toString();
       } catch (_) {}
     }
-    // Fallback to legacy passcode lock file
     final lockFile = File('${dir.path}/.vault_lock');
     if (lockFile.existsSync()) {
       return lockFile.readAsStringSync().trim();
@@ -218,29 +256,36 @@ class CodeFolder extends ChangeNotifier {
     return FontAwesomeIcons.folder;
   }
 
+  void setDecoyActive(bool active) {
+    emit(state.copyWith(isDecoyActive: active));
+  }
+
   void navigateToDirectory(Directory dir, {bool? keepDecoy}) {
-    final shouldKeepDecoy =
-        keepDecoy ?? (isDecoyActive && dir.path.contains('/.decoy_data'));
-    currentDirectory = dir;
-    isDecoyActive = shouldKeepDecoy;
+    final shouldKeepDecoy = keepDecoy ?? (state.isDecoyActive && dir.path.contains('/.decoy_data'));
+    emit(state.copyWith(
+      currentDirectory: dir,
+      isDecoyActive: shouldKeepDecoy,
+    ));
     refreshFiles();
   }
 
   void goBack() {
-    if (baseDirectory == null || currentDirectory == null) return;
-    if (currentDirectory!.path == baseDirectory!.path) return;
+    final baseDir = state.baseDirectory;
+    final curDir = state.currentDirectory;
+    if (baseDir == null || curDir == null) return;
+    if (curDir.path == baseDir.path) return;
 
-    final parent = currentDirectory!.parent;
+    final parent = curDir.parent;
     navigateToDirectory(parent);
   }
 
   // File system CRUD handlers
   Future<String?> createNewFolder(String name) async {
-    if (currentDirectory == null) return "No active directory";
+    if (state.currentDirectory == null) return "No active directory";
     final cleanName = name.replaceAll(RegExp(r'[\\/:*?"<>|]'), "").trim();
     if (cleanName.isEmpty) return "Folder name cannot be empty";
 
-    final dir = effectiveDirectory;
+    final dir = state.effectiveDirectory!;
     final newDir = Directory('${dir.path}/$cleanName');
     if (await newDir.exists()) {
       return "A folder with this name already exists";
@@ -255,21 +300,21 @@ class CodeFolder extends ChangeNotifier {
     }
   }
 
-  Future<String?> createNewVault(
-    String name,
-    String pin,
-    String decoyPin,
-    String securityQuestion,
-    String securityAnswer,
-    String passcodeHint,
-    String colorName,
-    String iconName,
-  ) async {
-    if (currentDirectory == null) return "No active directory";
+  Future<String?> createNewVault({
+    required String name,
+    required String pin,
+    required String decoyPin,
+    required String securityQuestion,
+    required String securityAnswer,
+    required String passcodeHint,
+    required String colorName,
+    required String iconName,
+  }) async {
+    if (state.currentDirectory == null) return "No active directory";
     final cleanName = name.replaceAll(RegExp(r'[\\/:*?"<>|]'), "").trim();
     if (cleanName.isEmpty) return "Vault name cannot be empty";
 
-    final dir = effectiveDirectory;
+    final dir = state.effectiveDirectory!;
     final newDir = Directory('${dir.path}/$cleanName');
     if (await newDir.exists()) {
       return "A folder with this name already exists";
@@ -278,7 +323,6 @@ class CodeFolder extends ChangeNotifier {
     try {
       await newDir.create();
 
-      // Save metadata in .vault_meta
       final metaFile = File('${newDir.path}/.vault_meta');
       final metaData = {
         "pin": pin,
@@ -303,11 +347,11 @@ class CodeFolder extends ChangeNotifier {
     String name, {
     required void Function(String err) onError,
   }) async {
-    if (currentDirectory == null) return null;
+    if (state.currentDirectory == null) return null;
     var cleanName = name.replaceAll(RegExp(r'[\\/:*?"<>|]'), "").trim();
     if (cleanName.isEmpty) cleanName = "Untitled Note";
 
-    final dir = effectiveDirectory;
+    final dir = state.effectiveDirectory!;
     final file = File('${dir.path}/$cleanName.txt');
     if (await file.exists()) {
       onError("A study note with this name already exists");
@@ -325,7 +369,7 @@ class CodeFolder extends ChangeNotifier {
   }
 
   Future<String> updateFlashcards(String? name, String data) async {
-    final dir = effectiveDirectory;
+    final dir = state.effectiveDirectory!;
     int count = 0;
     if (name == null) {
       final list = dir.listSync();
@@ -354,7 +398,7 @@ class CodeFolder extends ChangeNotifier {
   }
 
   Future<String> getFlashcards(String name) async {
-    final dir = effectiveDirectory;
+    final dir = state.effectiveDirectory!;
     final file = File('${dir.path}/$name.flashcard');
     if (!await file.exists()) {
       return "File not found";
@@ -362,17 +406,15 @@ class CodeFolder extends ChangeNotifier {
     return await file.readAsString();
   }
 
-  /// Create a new `.canvas` file in the current directory.
-  /// Returns the created [File] on success, or null if there was an error.
   Future<File?> createNewCanvas(
     String name, {
     required void Function(String err) onError,
   }) async {
-    if (currentDirectory == null) return null;
+    if (state.currentDirectory == null) return null;
     var cleanName = name.replaceAll(RegExp(r'[\\/:*?"<>|]'), "").trim();
     if (cleanName.isEmpty) cleanName = "Untitled Canvas";
 
-    final dir = effectiveDirectory;
+    final dir = state.effectiveDirectory!;
     final file = File('${dir.path}/$cleanName.canvas');
     if (await file.exists()) {
       onError("A canvas with this name already exists");
@@ -380,7 +422,6 @@ class CodeFolder extends ChangeNotifier {
     }
 
     try {
-      // Create an empty canvas file (empty JSON array)
       await file.writeAsString('[]');
       await refreshFiles();
       return file;
@@ -406,7 +447,6 @@ class CodeFolder extends ChangeNotifier {
 
     final parentPath = entity.parent.path;
 
-    // Preserve the original file extension
     String extension = "";
     if (entity is File) {
       final path = entity.path;
@@ -430,14 +470,14 @@ class CodeFolder extends ChangeNotifier {
     }
   }
 
-  Future<String?> lockFolder(
-    Directory dir,
-    String pin,
-    String decoyPin,
-    String securityQuestion,
-    String securityAnswer,
-    String passcodeHint,
-  ) async {
+  Future<String?> lockFolder({
+    required Directory dir,
+    required String pin,
+    required String decoyPin,
+    required String securityQuestion,
+    required String securityAnswer,
+    required String passcodeHint,
+  }) async {
     try {
       final metaFile = File('${dir.path}/.vault_meta');
       final metaData = {
@@ -475,7 +515,6 @@ class CodeFolder extends ChangeNotifier {
     }
   }
 
-  // Custom Recursive Copy
   Future<String?> copyEntity(FileSystemEntity source, Directory target) async {
     final name = source.path.split('/').last;
     final targetPath = '${target.path}/$name';
@@ -524,9 +563,10 @@ class CodeFolder extends ChangeNotifier {
   }
 
   List<Directory> getAllSubfolders() {
-    if (baseDirectory == null) return [];
-    final List<Directory> dirs = [baseDirectory!];
-    traverseSubfolders(baseDirectory!, dirs);
+    final baseDir = state.baseDirectory;
+    if (baseDir == null) return [];
+    final List<Directory> dirs = [baseDir];
+    traverseSubfolders(baseDir, dirs);
     return dirs;
   }
 

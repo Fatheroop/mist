@@ -2,8 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:alarm/alarm.dart';
 import 'package:flutter/material.dart';
-import 'package:mist/logic/alarmsandremainder.dart';
-import 'package:mist/uis/android/widgets/alarms_and_settings.dart';
+import 'package:mist/logic/alarms_cubit.dart';
+import 'package:mist/repo/models.dart';
 
 class Alarmsetter {
   static final Alarmsetter instance = Alarmsetter();
@@ -116,7 +116,7 @@ class Alarmsetter {
     debugPrint("⏰ setAlarm: resolvedAudioPath='$resolvedPath'");
 
     // Read user settings from the settings manager
-    final userSettings = AlarmsAndSettings.instance.settings;
+    final userSettings = AlarmsCubit.instance.state.settings;
     debugPrint(
       "⏰ setAlarm: vibrate=${userSettings.vibrate}, loop=${userSettings.loopAudio}, vol=${userSettings.volume}",
     );

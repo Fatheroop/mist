@@ -5,10 +5,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:animate_do/animate_do.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:mist/repo/permission_handler.dart';
-import 'package:mist/logic/code_folder.dart';
+import 'package:mist/logic/folder_cubit.dart';
 import 'package:mist/uis/android/ui_canvas.dart';
 import 'package:mist/uis/android/ui_flash_cards.dart';
+import 'package:mist/uis/android/widgets/filegrid_widget.dart';
+import 'package:mist/uis/android/widgets/json_viewer.dart';
+import 'package:mist/uis/android/widgets/premium_toast.dart';
+import 'package:mist/uis/android/widgets/study_note_editor.dart';
+import 'package:mist/uis/android/widgets/tactile_vault_card.dart';
 
 class UiFolderScreen extends StatefulWidget {
   const UiFolderScreen({super.key});
@@ -18,12 +24,12 @@ class UiFolderScreen extends StatefulWidget {
 }
 
 class _UiFolderScreenState extends State<UiFolderScreen> {
-  final CodeFolder _logic = CodeFolder.instance;
+  late final FolderCubit _logic;
 
   @override
   void initState() {
     super.initState();
-    _logic.addListener(_updateState);
+    _logic = context.read<FolderCubit>();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _logic.checkPermissionAndInit();
     });
@@ -31,14 +37,7 @@ class _UiFolderScreenState extends State<UiFolderScreen> {
 
   @override
   void dispose() {
-    _logic.removeListener(_updateState);
     super.dispose();
-  }
-
-  void _updateState() {
-    if (mounted) {
-      setState(() {});
-    }
   }
 
   // Premium Toast System
@@ -83,14 +82,14 @@ class _UiFolderScreenState extends State<UiFolderScreen> {
     String iconName,
   ) async {
     final err = await _logic.createNewVault(
-      name,
-      pin,
-      decoyPin,
-      securityQuestion,
-      securityAnswer,
-      passcodeHint,
-      colorName,
-      iconName,
+      name: name,
+      pin: pin,
+      decoyPin: decoyPin,
+      securityQuestion: securityQuestion,
+      securityAnswer: securityAnswer,
+      passcodeHint: passcodeHint,
+      colorName: colorName,
+      iconName: iconName,
     );
     if (err != null) {
       _showPremiumToast(err, isError: true);
@@ -134,9 +133,7 @@ class _UiFolderScreenState extends State<UiFolderScreen> {
       if (mounted) {
         Navigator.push(
           context,
-          MaterialPageRoute(
-            builder: (context) => CanvasHome(file: file),
-          ),
+          MaterialPageRoute(builder: (context) => CanvasHome(file: file)),
         ).then((_) => _logic.refreshFiles());
       }
     }
@@ -170,12 +167,12 @@ class _UiFolderScreenState extends State<UiFolderScreen> {
     String passcodeHint,
   ) async {
     final err = await _logic.lockFolder(
-      dir,
-      pin,
-      decoyPin,
-      securityQuestion,
-      securityAnswer,
-      passcodeHint,
+      dir: dir,
+      pin: pin,
+      decoyPin: decoyPin,
+      securityQuestion: securityQuestion,
+      securityAnswer: securityAnswer,
+      passcodeHint: passcodeHint,
     );
     if (err != null) {
       _showPremiumToast(err, isError: true);
@@ -647,6 +644,7 @@ class _UiFolderScreenState extends State<UiFolderScreen> {
               onChanged: (val) => folderName = val,
               style: const TextStyle(color: Colors.white),
               cursorColor: Colors.amberAccent,
+              autofocus: true,
               decoration: InputDecoration(
                 hintText: "Enter folder name...",
                 hintStyle: const TextStyle(color: Colors.white30),
@@ -1341,6 +1339,7 @@ class _UiFolderScreenState extends State<UiFolderScreen> {
               onChanged: (val) => noteName = val,
               style: const TextStyle(color: Colors.white),
               cursorColor: Colors.amberAccent,
+              autofocus: true,
               decoration: InputDecoration(
                 hintText: "Enter note title...",
                 hintStyle: const TextStyle(color: Colors.white30),
@@ -1420,6 +1419,8 @@ class _UiFolderScreenState extends State<UiFolderScreen> {
             content: TextField(
               onChanged: (val) => canvasName = val,
               style: const TextStyle(color: Colors.white),
+              autocorrect: true,
+              autofocus: true,
               cursorColor: Colors.orangeAccent,
               decoration: InputDecoration(
                 hintText: "Enter canvas name...",
@@ -1547,22 +1548,40 @@ class _UiFolderScreenState extends State<UiFolderScreen> {
                       style: TextStyle(color: Colors.white70),
                     ),
                     onTap: () {
-                      Navigator.pop(context);
-                      if (isDir) {
-                        _onFolderTap(item);
-                      } else {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => StudyNoteEditorScreen(
-                              file: item as File,
-                              onSave: () => _logic.refreshFiles(),
-                            ),
-                          ),
-                        );
+                      FilegridWidget(
+                        entity: item,
+                        actiononfolder: () {
+                          _onFolderTap(item as Directory);
+                        },
+                        folderCubit: _logic,
+                      ).navigate(context);
+                      if (item is Directory) {
+                        Navigator.pop(context);
                       }
                     },
                   ),
+
+                  if (!isDir)
+                    ListTile(
+                      leading: Icon(
+                        Icons.javascript_outlined,
+                        color: Colors.white.withValues(alpha: 0.6),
+                      ),
+                      title: const Text(
+                        "Json View",
+                        style: TextStyle(color: Colors.white70),
+                      ),
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (BuildContext context) {
+                              return JsonViewer(file: item as File);
+                            },
+                          ),
+                        );
+                      },
+                    ),
 
                   // Rename Option
                   ListTile(
@@ -2128,97 +2147,103 @@ class _UiFolderScreenState extends State<UiFolderScreen> {
   // Primary UI components
   @override
   Widget build(BuildContext context) {
-    final isRoot = _logic.isRoot;
+    return BlocBuilder<FolderCubit, FolderState>(
+      builder: (context, state) {
+        final isRoot = state.isRoot;
 
-    return Scaffold(
-      backgroundColor: const Color(0xFF0C0C16),
-      body: Stack(
-        children: [
-          // Background Glow Orbs for matching the ambient obsidian dark aesthetic
-          Positioned(
-            top: -100,
-            left: -50,
-            child: Container(
-              width: 300,
-              height: 300,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: Colors.amberAccent.withValues(alpha: 0.05),
-              ),
-            ),
-          ),
-          Positioned(
-            bottom: -50,
-            right: -50,
-            child: Container(
-              width: 300,
-              height: 300,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: Colors.purpleAccent.withValues(alpha: 0.05),
-              ),
-            ),
-          ),
-          Positioned.fill(
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 90, sigmaY: 90),
-              child: const SizedBox.shrink(),
-            ),
-          ),
-
-          // Main explorer screen content
-          SafeArea(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+        return PopScope(
+          canPop: isRoot,
+          onPopInvokedWithResult: (didPop, result) {
+            if (didPop) return;
+            _logic.goBack();
+          },
+          child: Scaffold(
+            backgroundColor: const Color(0xFF0C0C16),
+            body: Stack(
               children: [
-                // Top Navigation breadcrumbs and back actions
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 8,
+                Positioned(
+                  top: -100,
+                  left: -50,
+                  child: Container(
+                    width: 300,
+                    height: 300,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Colors.amberAccent.withValues(alpha: 0.05),
+                    ),
                   ),
-                  child: Row(
-                    children: [
-                      if (!isRoot)
-                        IconButton(
-                          icon: const Icon(
-                            Icons.arrow_back_ios_new_rounded,
-                            color: Colors.white,
-                            size: 18,
-                          ),
-                          onPressed: () => _logic.goBack(),
-                        ),
-                      Expanded(child: _buildBreadcrumbs()),
-                    ],
+                ),
+                Positioned(
+                  bottom: -50,
+                  right: -50,
+                  child: Container(
+                    width: 300,
+                    height: 300,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Colors.purpleAccent.withValues(alpha: 0.05),
+                    ),
+                  ),
+                ),
+                Positioned.fill(
+                  child: BackdropFilter(
+                    filter: ImageFilter.blur(sigmaX: 90, sigmaY: 90),
+                    child: const SizedBox.shrink(),
                   ),
                 ),
 
-                const Divider(color: Colors.white10, height: 1),
-                // Creation toolbar instead of FAB
-                if (_logic.isStoragePermissionGranted && !_logic.isLoading)
-                  _buildToolBAR(),
-                if (_logic.isStoragePermissionGranted && !_logic.isLoading)
-                  const Divider(color: Colors.white10, height: 1),
+                SafeArea(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 8,
+                        ),
+                        child: Row(
+                          children: [
+                            if (!isRoot)
+                              IconButton(
+                                icon: const Icon(
+                                  Icons.arrow_back_ios_new_rounded,
+                                  color: Colors.white,
+                                  size: 18,
+                                ),
+                                onPressed: () => _logic.goBack(),
+                              ),
+                            Expanded(child: _buildBreadcrumbs()),
+                          ],
+                        ),
+                      ),
 
-                // Directory Content body
-                Expanded(
-                  child: _logic.isLoading
-                      ? const Center(
-                          child: CircularProgressIndicator(
-                            color: Colors.amberAccent,
-                          ),
-                        )
-                      : (!_logic.isStoragePermissionGranted
-                            ? _buildPermissionWarning()
-                            : (_logic.items.isEmpty
-                                  ? _buildEmptyState()
-                                  : _buildFilesGrid())),
+                      const Divider(color: Colors.white10, height: 1),
+                      if (state.isStoragePermissionGranted && !state.isLoading)
+                        _buildToolBAR(),
+                      if (state.isStoragePermissionGranted && !state.isLoading)
+                        const Divider(color: Colors.white10, height: 1),
+
+                      Expanded(
+                        child: state.isLoading
+                            ? const Center(
+                                child: CircularProgressIndicator(
+                                  color: Colors.amberAccent,
+                                ),
+                              )
+                            : (!state.isStoragePermissionGranted
+                                  ? _buildPermissionWarning()
+                                  : ((state.items.isEmpty && isRoot)
+                                        ? _buildEmptyState()
+                                        : _buildFilesGrid())),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -2444,6 +2469,9 @@ class _UiFolderScreenState extends State<UiFolderScreen> {
   }
 
   Widget _buildFilesGrid() {
+    final showParentTile = !_logic.isRoot;
+    final totalCount = _logic.items.length + (showParentTile ? 1 : 0);
+
     return GridView.builder(
       padding: const EdgeInsets.only(left: 16, right: 16, top: 16, bottom: 120),
       physics: const BouncingScrollPhysics(),
@@ -2453,53 +2481,36 @@ class _UiFolderScreenState extends State<UiFolderScreen> {
         mainAxisSpacing: 12,
         crossAxisSpacing: 12,
       ),
-      itemCount: _logic.items.length,
+      itemCount: totalCount,
       itemBuilder: (context, idx) {
-        final item = _logic.items[idx];
-        final isDir = item is Directory;
-        final name = item.path.split('/').last.split(".").first;
-        final isLocked = isDir && _logic.isFolderLocked(item);
-        final isFlashcard = !isDir && item.path.endsWith('.flashcard');
-        final accentColor = isDir
-            ? _logic.getVaultColor(item)
-            : (isFlashcard ? Colors.white : Colors.white70);
-        final icon = isDir
-            ? _logic.getVaultIcon(item)
-            : (isFlashcard
-                  ? FontAwesomeIcons.solidNoteSticky
-                  : FontAwesomeIcons.solidFileLines);
+        if (showParentTile && idx == 0) {
+          return FadeInUp(
+            duration: const Duration(milliseconds: 200),
+            child: TactileParentFolderCard(
+              onTap: () {
+                _logic.goBack();
+              },
+            ),
+          );
+        }
 
+        final itemIdx = showParentTile ? idx - 1 : idx;
+        final item = _logic.items[itemIdx];
+        FilegridWidget widget = FilegridWidget(
+          entity: item,
+          actiononfolder: () {
+            _onFolderTap(item as Directory);
+          },
+          folderCubit: _logic,
+        );
         return FadeInUp(
           key: ValueKey(item.path),
           duration: Duration(milliseconds: 200 + (idx * 50)),
           child: TactileVaultCard(
             item: item,
-            isDir: isDir,
-            name: name,
-            isLocked: isLocked,
-            accentColor: accentColor,
-            icon: icon,
+            widget: widget,
             onTap: () {
-              if (isDir) {
-                _onFolderTap(item);
-              } else if (isFlashcard) {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => UiFlashCards(filename: name),
-                  ),
-                ).then((_) => _logic.refreshFiles());
-              } else {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => StudyNoteEditorScreen(
-                      file: item as File,
-                      onSave: () => _logic.refreshFiles(),
-                    ),
-                  ),
-                );
-              }
+              widget.navigate(context);
             },
             onLongPress: () => _showOperationsSheet(item),
           ),
@@ -2509,613 +2520,3 @@ class _UiFolderScreenState extends State<UiFolderScreen> {
   }
 }
 
-// Fullscreen Markdown Note Editor Screen
-class StudyNoteEditorScreen extends StatefulWidget {
-  final File file;
-  final VoidCallback onSave;
-
-  const StudyNoteEditorScreen({
-    super.key,
-    required this.file,
-    required this.onSave,
-  });
-
-  @override
-  State<StudyNoteEditorScreen> createState() => _StudyNoteEditorScreenState();
-}
-
-class _StudyNoteEditorScreenState extends State<StudyNoteEditorScreen> {
-  final TextEditingController _titleController = TextEditingController();
-  final TextEditingController _bodyController = TextEditingController();
-  bool isSaving = false;
-  int wordCount = 0;
-  int charCount = 0;
-  Timer? time;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadNoteData();
-    _bodyController.addListener(_updateCounts);
-    time = Timer.periodic(const Duration(seconds: 5), (_) {
-      _saveNote();
-    });
-  }
-
-  @override
-  void dispose() {
-    time!.cancel();
-    _titleController.dispose();
-    _bodyController.dispose();
-    super.dispose();
-  }
-
-  void _loadNoteData() {
-    final title = widget.file.path.split('/').last.replaceAll(".txt", "");
-    _titleController.text = title;
-
-    try {
-      final content = widget.file.readAsStringSync();
-      _bodyController.text = content;
-    } catch (_) {}
-    _updateCounts();
-  }
-
-  void _updateCounts() {
-    final text = _bodyController.text;
-    setState(() {
-      charCount = text.length;
-      wordCount = text.trim().isEmpty
-          ? 0
-          : text.trim().split(RegExp(r'\s+')).length;
-    });
-  }
-
-  Future<void> _saveNote() async {
-    setState(() {
-      isSaving = true;
-    });
-
-    try {
-      // Save Body Content
-      await widget.file.writeAsString(_bodyController.text);
-
-      // Save Title Content (rename file if title changed!)
-      var cleanTitle = _titleController.text
-          .replaceAll(RegExp(r'[\\/:*?"<>|]'), "")
-          .trim();
-
-      if (cleanTitle.length > 40) {
-        cleanTitle = "${cleanTitle.substring(0, 20)}...";
-      }
-      final currentTitle = widget.file.path
-          .split('/')
-          .last
-          .replaceAll(".txt", "");
-
-      if (cleanTitle.isNotEmpty && cleanTitle != currentTitle) {
-        final parentPath = widget.file.parent.path;
-        final newPath = '$parentPath/$cleanTitle.txt';
-        await widget.file.rename(newPath);
-      }
-
-      widget.onSave();
-    } catch (_) {}
-
-    setState(() {
-      isSaving = false;
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () => FocusScope.of(context).unfocus(),
-      behavior: HitTestBehavior.opaque,
-      child: Scaffold(
-        backgroundColor: const Color(0xFF0C0C16),
-        body: Stack(
-          children: [
-            // Glow orbs matching Mist app aesthetic
-            Positioned(
-              top: -80,
-              right: -50,
-              child: Container(
-                width: 280,
-                height: 280,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.purpleAccent.withValues(alpha: 0.12),
-                ),
-              ),
-            ),
-            Positioned(
-              bottom: -50,
-              left: -50,
-              child: Container(
-                width: 300,
-                height: 300,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.amberAccent.withValues(alpha: 0.08),
-                ),
-              ),
-            ),
-
-            Positioned.fill(
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 80, sigmaY: 80),
-                child: const SizedBox.shrink(),
-              ),
-            ),
-
-            SafeArea(
-              child: Column(
-                children: [
-                  // Editor App Bar
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 12,
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Row(
-                          children: [
-                            GestureDetector(
-                              onTap: () async {
-                                final navigator = Navigator.of(context);
-                                // Auto-save on exit
-                                await _saveNote();
-                                navigator.pop();
-                              },
-                              child: Container(
-                                padding: const EdgeInsets.all(10),
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withValues(alpha: 0.05),
-                                  borderRadius: BorderRadius.circular(14),
-                                  border: Border.all(
-                                    color: Colors.white.withValues(alpha: 0.08),
-                                    width: 1.5,
-                                  ),
-                                ),
-                                child: const Icon(
-                                  Icons.arrow_back_ios_new_rounded,
-                                  color: Colors.white,
-                                  size: 16,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 16),
-                            const Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  "Study Note Editor",
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                Text(
-                                  "Auto-saves on exit",
-                                  style: TextStyle(
-                                    color: Colors.white38,
-                                    fontSize: 11,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                        IconButton(
-                          onPressed: isSaving ? null : _saveNote,
-                          icon: isSaving
-                              ? const SizedBox(
-                                  width: 20,
-                                  height: 20,
-                                  child: CircularProgressIndicator(
-                                    color: Colors.amberAccent,
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : const Icon(
-                                  Icons.save_rounded,
-                                  color: Colors.amberAccent,
-                                  size: 24,
-                                ),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  const Divider(color: Colors.white10, height: 1),
-
-                  // Note Content Fields
-                  Expanded(
-                    child: ListView(
-                      padding: const EdgeInsets.all(20),
-                      children: [
-                        // Title Input field
-                        TextField(
-                          controller: _titleController,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 22,
-                            fontWeight: FontWeight.bold,
-                          ),
-                          cursorColor: Colors.amberAccent,
-                          decoration: const InputDecoration(
-                            border: InputBorder.none,
-                            hintText: "Untitled Note",
-                            hintStyle: TextStyle(
-                              color: Colors.white24,
-                              fontSize: 22,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        // Body Input field
-                        TextField(
-                          controller: _bodyController,
-                          maxLines: null,
-                          minLines: 15,
-                          cursorColor: Colors.amberAccent,
-                          style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.8),
-                            fontSize: 15,
-                            height: 1.6,
-                          ),
-                          decoration: const InputDecoration(
-                            border: InputBorder.none,
-                            hintText:
-                                "Start writing your lecture & review notes here...",
-                            hintStyle: TextStyle(
-                              color: Colors.white24,
-                              fontSize: 15,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  // Bottom statistics status strip
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 12,
-                    ),
-                    decoration: const BoxDecoration(
-                      color: Color(0xFF131324),
-                      border: Border(top: BorderSide(color: Colors.white10)),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          "$wordCount words  |  $charCount characters",
-                          style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.4),
-                            fontSize: 12,
-                          ),
-                        ),
-                        Row(
-                          children: [
-                            const Icon(
-                              Icons.cloud_done_rounded,
-                              color: Colors.tealAccent,
-                              size: 16,
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              "Persistent Sync Active",
-                              style: TextStyle(
-                                color: Colors.tealAccent.withValues(alpha: 0.8),
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class TactileVaultCard extends StatefulWidget {
-  final FileSystemEntity item;
-  final bool isDir;
-  final String name;
-  final bool isLocked;
-  final Color accentColor;
-  final FaIconData icon;
-  final VoidCallback onTap;
-  final VoidCallback onLongPress;
-
-  const TactileVaultCard({
-    super.key,
-    required this.item,
-    required this.isDir,
-    required this.name,
-    required this.isLocked,
-    required this.accentColor,
-    required this.icon,
-    required this.onTap,
-    required this.onLongPress,
-  });
-
-  @override
-  State<TactileVaultCard> createState() => _TactileVaultCardState();
-}
-
-class _TactileVaultCardState extends State<TactileVaultCard> {
-  double _scale = 1.0;
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedScale(
-      scale: _scale,
-      duration: const Duration(milliseconds: 100),
-      curve: Curves.easeOut,
-      child: GestureDetector(
-        onTapDown: (_) => setState(() => _scale = 0.95),
-        onTapUp: (_) => setState(() => _scale = 1.0),
-        onTapCancel: () => setState(() => _scale = 1.0),
-        onTap: widget.onTap,
-        onLongPress: widget.onLongPress,
-        child: Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(22),
-            border: Border.all(
-              color: widget.isLocked
-                  ? widget.accentColor.withValues(alpha: 0.25)
-                  : Colors.white.withValues(alpha: 0.05),
-              width: widget.isLocked ? 1.5 : 1,
-            ),
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                widget.isLocked
-                    ? widget.accentColor.withValues(alpha: 0.06)
-                    : Colors.white.withValues(alpha: 0.06),
-                Colors.white.withValues(alpha: 0.01),
-              ],
-            ),
-            boxShadow: [
-              if (widget.isLocked)
-                BoxShadow(
-                  color: widget.accentColor.withValues(alpha: 0.04),
-                  blurRadius: 15,
-                  spreadRadius: -2,
-                ),
-            ],
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: widget.accentColor.withValues(alpha: 0.1),
-                      shape: BoxShape.circle,
-                    ),
-                    child: FaIcon(
-                      widget.icon,
-                      color: widget.accentColor,
-                      size: 16,
-                    ),
-                  ),
-                  IconButton(
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
-                    icon: const Icon(
-                      Icons.more_vert_rounded,
-                      color: Colors.white30,
-                      size: 18,
-                    ),
-                    onPressed: widget.onLongPress,
-                  ),
-                ],
-              ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    widget.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 14,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    widget.isDir
-                        ? (widget.isLocked ? "🔒 PIN Vault" : "📁 Folder")
-                        : "📝 Note File",
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.4),
-                      fontSize: 11,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class PremiumToastWidget extends StatefulWidget {
-  final String message;
-  final bool isError;
-  final bool isWarning;
-  final VoidCallback onDismiss;
-
-  const PremiumToastWidget({
-    super.key,
-    required this.message,
-    required this.isError,
-    required this.isWarning,
-    required this.onDismiss,
-  });
-
-  @override
-  State<PremiumToastWidget> createState() => _PremiumToastWidgetState();
-}
-
-class _PremiumToastWidgetState extends State<PremiumToastWidget>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  late Animation<Offset> _slideAnimation;
-  late Animation<double> _opacityAnimation;
-  Timer? _dismissTimer;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 400),
-    );
-
-    _slideAnimation = Tween<Offset>(
-      begin: const Offset(0, -1.5),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutBack));
-
-    _opacityAnimation = Tween<double>(
-      begin: 0.0,
-      end: 1.0,
-    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
-
-    _controller.forward();
-
-    _dismissTimer = Timer(const Duration(milliseconds: 3500), () {
-      _dismiss();
-    });
-  }
-
-  void _dismiss() {
-    if (mounted) {
-      _controller.reverse().then((_) {
-        widget.onDismiss();
-      });
-    }
-  }
-
-  @override
-  void dispose() {
-    _dismissTimer?.cancel();
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final color = widget.isError
-        ? Colors.redAccent
-        : widget.isWarning
-        ? Colors.orangeAccent
-        : Colors.tealAccent;
-
-    return Positioned(
-      top: 50,
-      left: 20,
-      right: 20,
-      child: Material(
-        color: Colors.transparent,
-        child: SlideTransition(
-          position: _slideAnimation,
-          child: FadeTransition(
-            opacity: _opacityAnimation,
-            child: Dismissible(
-              key: UniqueKey(),
-              direction: DismissDirection.up,
-              onDismissed: (_) => widget.onDismiss(),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(20),
-                child: BackdropFilter(
-                  filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 16,
-                    ),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF131324).withValues(alpha: 0.9),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(
-                        color: color.withValues(alpha: 0.35),
-                        width: 1.5,
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: color.withValues(alpha: 0.1),
-                          blurRadius: 20,
-                          spreadRadius: 2,
-                        ),
-                      ],
-                    ),
-                    child: Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: color.withValues(alpha: 0.15),
-                            shape: BoxShape.circle,
-                          ),
-                          child: Icon(
-                            widget.isError
-                                ? Icons.error_outline_rounded
-                                : widget.isWarning
-                                ? Icons.warning_amber_rounded
-                                : Icons.check_circle_outline_rounded,
-                            color: color,
-                            size: 20,
-                          ),
-                        ),
-                        const SizedBox(width: 14),
-                        Expanded(
-                          child: Text(
-                            widget.message,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}

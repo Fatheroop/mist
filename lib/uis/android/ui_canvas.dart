@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 import 'package:flutter/material.dart';
@@ -32,9 +33,10 @@ class _CanvasHomeState extends State<CanvasHome> {
 
   /// Gap (canvas px) enforced between nodes.
   static const double _nodeGap = 16.0;
+  late Timer _autosave;
 
   // ── Nodes ──────────────────────────────────────────────────────────────
-  final List<CanvasNodeData> _nodes = [
+  List<CanvasNodeData> _nodes = [
     CanvasNodeData(
       id: 'untitled 1',
       x: 100,
@@ -55,11 +57,28 @@ class _CanvasHomeState extends State<CanvasHome> {
 
   int _nextId = 4;
 
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((timeStamp) => _loaddata());
+  }
+
+  void _loaddata() async {
+    await CanvasFileManager.load(widget.file).then((data) {
+      _nodes = data;
+    });
+    setState(() {});
+    _autosave = Timer.periodic(Duration(seconds: 4), (time) {
+      CanvasFileManager.save(_nodes, widget.file);
+    });
+  }
+
   // ── Lifecycle ──────────────────────────────────────────────────────────
 
   @override
   void dispose() {
     _transformCtrl.dispose();
+    _autosave.cancel();
     super.dispose();
   }
 

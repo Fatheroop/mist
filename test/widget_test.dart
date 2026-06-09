@@ -2,6 +2,8 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:mist/logic/folder_cubit.dart';
 import 'package:mist/uis/android/ui_folder.dart';
 
 void main() {
@@ -19,10 +21,13 @@ void main() {
   });
 
   testWidgets('UiFolderScreen runs successfully and does not crash', (WidgetTester tester) async {
-    // 1. Pump the UiFolderScreen inside a MaterialApp
+    // 1. Pump the UiFolderScreen inside a MaterialApp with FolderCubit provided
     await tester.pumpWidget(
-      const MaterialApp(
-        home: UiFolderScreen(),
+      MaterialApp(
+        home: BlocProvider<FolderCubit>(
+          create: (context) => FolderCubit(),
+          child: const UiFolderScreen(),
+        ),
       ),
     );
 

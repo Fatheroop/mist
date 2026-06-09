@@ -1,10 +1,10 @@
 import 'dart:async';
-import 'dart:convert';
-import 'dart:io';
 import 'package:animate_do/animate_do.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:path_provider/path_provider.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:mist/logic/tasks_cubit.dart';
+import 'package:mist/repo/models.dart';
 
 class UiTasks extends StatefulWidget {
   const UiTasks({super.key});
@@ -14,216 +14,183 @@ class UiTasks extends StatefulWidget {
 }
 
 class _UiTasksState extends State<UiTasks> {
-  List<CheckboxItem> checkboxes = [];
+  final Map<String, TextEditingController> _controllers = {};
+  final Map<String, FocusNode> _focusNodes = {};
   Timer? _saveTimer;
 
   @override
   void initState() {
     super.initState();
-    _loadTasks();
+    final tasks = context.read<TasksCubit>().state.tasks;
+    _updateControllers(tasks);
 
     // Auto-focus the first incomplete item after build
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (checkboxes.isNotEmpty) {
-        checkboxes[0].node.requestFocus();
+      final state = context.read<TasksCubit>().state;
+      if (state.tasks.isNotEmpty) {
+        _focusNodes[state.tasks[0].id]?.requestFocus();
       }
     });
 
     // Automatically save tasks to storage every 5 seconds
     _saveTimer = Timer.periodic(const Duration(seconds: 5), (_) {
-      _saveTasks();
+      if (mounted) {
+        context.read<TasksCubit>().saveTasks();
+      }
     });
   }
 
   @override
   void dispose() {
     _saveTimer?.cancel();
-    _saveTasks(); // Perform a final save on exit
-    for (var item in checkboxes) {
-      item.dispose();
+    context.read<TasksCubit>().saveTasks();
+    for (final controller in _controllers.values) {
+      controller.dispose();
+    }
+    for (final node in _focusNodes.values) {
+      node.dispose();
     }
     super.dispose();
   }
 
-  Future<File> _getTasksFile() async {
-    final dir = await getApplicationDocumentsDirectory();
-    return File('${dir.path}/tasks.json');
-  }
+  void _updateControllers(List<TaskItem> tasks) {
+    final Set<String> activeIds = tasks.map((t) => t.id).toSet();
 
-  Future<void> _loadTasks() async {
-    try {
-      final file = await _getTasksFile();
-      if (await file.exists()) {
-        final content = await file.readAsString();
-        final List<dynamic> decoded = jsonDecode(content);
-        if (decoded.isNotEmpty) {
-          final loaded = decoded.map((item) {
-            return _createItem(
-              text: item['text'] ?? '',
-              isChecked: item['isChecked'] ?? false,
-            );
-          }).toList();
-          setState(() {
-            checkboxes = loaded;
-          });
-          return;
-        }
+    // Clean up disposed/deleted tasks
+    _controllers.keys.toList().forEach((id) {
+      if (!activeIds.contains(id)) {
+        _controllers[id]?.dispose();
+        _controllers.remove(id);
       }
-    } catch (e) {
-      debugPrint("Error loading tasks: $e");
-    }
-
-    // Default tasks if no saved tasks or error
-    setState(() {
-      checkboxes = [
-        _createItem(
-          text: "🚀 Create mindmap visualization concept",
-          isChecked: false,
-        ),
-        _createItem(
-          text: "🎨 Define harmonized amber glow color scheme",
-          isChecked: true,
-        ),
-        _createItem(
-          text: "📝 Integrate premium glassmorphism layouts",
-          isChecked: false,
-        ),
-        _createItem(
-          text: "🛠 Fix focus nodes and RangeError exceptions",
-          isChecked: true,
-        ),
-      ];
     });
-  }
+    _focusNodes.keys.toList().forEach((id) {
+      if (!activeIds.contains(id)) {
+        _focusNodes[id]?.dispose();
+        _focusNodes.remove(id);
+      }
+    });
 
-  Future<void> _saveTasks() async {
-    try {
-      final file = await _getTasksFile();
-      final data = jsonEncode(
-        checkboxes
-            .map(
-              (item) => {
-                'text': item.controller.text,
-                'isChecked': item.isChecked,
-              },
-            )
-            .toList(),
-      );
-      await file.writeAsString(data);
-    } catch (e) {
-      debugPrint("Error saving tasks: $e");
+    // Add controllers for new tasks
+    for (final task in tasks) {
+      if (!_controllers.containsKey(task.id)) {
+        final controller = TextEditingController(text: task.text);
+        controller.addListener(() {
+          context.read<TasksCubit>().updateTaskText(task.id, controller.text);
+        });
+        _controllers[task.id] = controller;
+      }
+      if (!_focusNodes.containsKey(task.id)) {
+        final node = FocusNode();
+        node.addListener(() {
+          if (mounted) {
+            setState(() {}); // Rebuild to update focus indicators
+          }
+        });
+        _focusNodes[task.id] = node;
+      }
     }
   }
 
-  CheckboxItem _createItem({String text = "", bool isChecked = false}) {
-    final item = CheckboxItem(text: text, isChecked: isChecked);
-    item.node.addListener(() {
-      if (mounted) {
-        setState(() {}); // Rebuild to update focus indicators
-      }
-    });
-    return item;
-  }
+  void _handleBackspace(int index, List<TaskItem> tasks) {
+    if (index == 0) return;
 
-  int get totalTasks => checkboxes.length;
-  int get completedTasks => checkboxes.where((item) => item.isChecked).length;
-  double get progressPercent =>
-      totalTasks == 0 ? 0.0 : completedTasks / totalTasks;
+    final currentItem = tasks[index];
+    final prevItem = tasks[index - 1];
 
-  void _handleBackspace(int index) {
-    if (index == 0) return; // Can't merge the first item upwards
+    final currentCtrl = _controllers[currentItem.id];
+    final prevCtrl = _controllers[prevItem.id];
+    if (currentCtrl == null || prevCtrl == null) return;
 
-    final currentItem = checkboxes[index];
-    final prevItem = checkboxes[index - 1];
-
-    final currentText = currentItem.controller.text;
-    final prevText = prevItem.controller.text;
+    final currentText = currentCtrl.text;
+    final prevText = prevCtrl.text;
     final junctionPoint = prevText.length;
 
-    // Merge text into the previous item
-    prevItem.controller.text = prevText + currentText;
+    prevCtrl.text = prevText + currentText;
+    context.read<TasksCubit>().updateTaskText(prevItem.id, prevText + currentText);
+    context.read<TasksCubit>().deleteTask(currentItem.id);
 
-    // Remove the current item
-    setState(() {
-      checkboxes.removeAt(index);
-    });
-
-    // Request focus and place the cursor exactly at the junction point
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      prevItem.node.requestFocus();
-      prevItem.controller.selection = TextSelection.collapsed(
+      _focusNodes[prevItem.id]?.requestFocus();
+      _controllers[prevItem.id]?.selection = TextSelection.collapsed(
         offset: junctionPoint,
       );
     });
-
-    // Clean up resources of the deleted item
-    currentItem.dispose();
   }
 
-  void _handleEnter(int index) {
-    final currentItem = checkboxes[index];
-    final currentText = currentItem.controller.text;
-    final selection = currentItem.controller.selection;
+  void _handleEnter(int index, List<TaskItem> tasks) {
+    final currentItem = tasks[index];
+    final currentCtrl = _controllers[currentItem.id];
+    if (currentCtrl == null) return;
+
+    final currentText = currentCtrl.text;
+    final selection = currentCtrl.selection;
 
     String textForCurrent = currentText;
     String textForNew = "";
 
-    // Partition text at cursor position if cursor is active
     if (selection.isValid) {
       final start = selection.start;
       textForCurrent = currentText.substring(0, start);
       textForNew = currentText.substring(start);
     }
 
-    currentItem.controller.text = textForCurrent;
+    currentCtrl.text = textForCurrent;
+    context.read<TasksCubit>().updateTaskText(currentItem.id, textForCurrent);
 
-    final newItem = _createItem(text: textForNew);
+    final newId = DateTime.now().microsecondsSinceEpoch.toString();
+    context.read<TasksCubit>().insertTask(index + 1, text: textForNew, id: newId);
 
-    setState(() {
-      checkboxes.insert(index + 1, newItem);
-    });
-
-    // Request focus on the newly inserted item
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      newItem.node.requestFocus();
-      newItem.controller.selection = const TextSelection.collapsed(offset: 0);
+      _focusNodes[newId]?.requestFocus();
+      _controllers[newId]?.selection = const TextSelection.collapsed(offset: 0);
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () => FocusScope.of(context).unfocus(),
-      behavior: HitTestBehavior.opaque,
-      child: Scaffold(
-        backgroundColor: const Color(
-          0xFF0F0F15,
-        ), // Premium monochromatic dark background
-        resizeToAvoidBottomInset: true,
-        body: SafeArea(
-          child: Column(
-            children: [
-              _buildAppBar(context),
-              _buildHeader(),
-              Expanded(
-                child: checkboxes.isEmpty
-                    ? _buildEmptyState()
-                    : ListView.builder(
-                        padding: const EdgeInsets.only(bottom: 40),
-                        itemCount: checkboxes.length,
-                        itemBuilder: (context, index) {
-                          final item = checkboxes[index];
-                          return FadeInLeft(
-                            key: ValueKey(item),
-                            duration: const Duration(milliseconds: 180),
-                            child: _buildItemRow(item, index),
-                          );
-                        },
-                      ),
+    return BlocListener<TasksCubit, TasksState>(
+      listener: (context, state) {
+        _updateControllers(state.tasks);
+      },
+      child: BlocBuilder<TasksCubit, TasksState>(
+        builder: (context, state) {
+          final totalTasks = state.tasks.length;
+          final completedTasks = state.tasks.where((t) => t.isChecked).length;
+          final percent = totalTasks == 0 ? 0.0 : completedTasks / totalTasks;
+
+          return GestureDetector(
+            onTap: () => FocusScope.of(context).unfocus(),
+            behavior: HitTestBehavior.opaque,
+            child: Scaffold(
+              backgroundColor: const Color(0xFF0F0F15),
+              resizeToAvoidBottomInset: true,
+              body: SafeArea(
+                child: Column(
+                  children: [
+                    _buildAppBar(context),
+                    _buildHeader(totalTasks, completedTasks, percent),
+                    Expanded(
+                      child: state.tasks.isEmpty
+                          ? _buildEmptyState()
+                          : ListView.builder(
+                              padding: const EdgeInsets.only(bottom: 40),
+                              itemCount: state.tasks.length,
+                              itemBuilder: (context, index) {
+                                final item = state.tasks[index];
+                                return FadeInLeft(
+                                  key: ValueKey(item.id),
+                                  duration: const Duration(milliseconds: 180),
+                                  child: _buildItemRow(item, index, state.tasks),
+                                );
+                              },
+                            ),
+                    ),
+                  ],
+                ),
               ),
-            ],
-          ),
-        ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -233,7 +200,6 @@ class _UiTasksState extends State<UiTasks> {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       child: Row(
         children: [
-          // Glassmorphic Back Button
           GestureDetector(
             onTap: () => Navigator.pop(context),
             child: Container(
@@ -277,8 +243,7 @@ class _UiTasksState extends State<UiTasks> {
     );
   }
 
-  Widget _buildHeader() {
-    final percent = progressPercent;
+  Widget _buildHeader(int totalTasks, int completedTasks, double percent) {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       padding: const EdgeInsets.all(18),
@@ -412,12 +377,10 @@ class _UiTasksState extends State<UiTasks> {
             children: [
               TextButton.icon(
                 onPressed: () {
-                  final newItem = _createItem(text: "");
-                  setState(() {
-                    checkboxes.add(newItem);
-                  });
+                  final newId = DateTime.now().microsecondsSinceEpoch.toString();
+                  context.read<TasksCubit>().addTask(text: "", id: newId);
                   WidgetsBinding.instance.addPostFrameCallback((_) {
-                    newItem.node.requestFocus();
+                    _focusNodes[newId]?.requestFocus();
                   });
                 },
                 icon: const Icon(
@@ -450,15 +413,7 @@ class _UiTasksState extends State<UiTasks> {
               if (completedTasks > 0)
                 TextButton.icon(
                   onPressed: () {
-                    setState(() {
-                      checkboxes.removeWhere((item) {
-                        if (item.isChecked) {
-                          item.dispose();
-                          return true;
-                        }
-                        return false;
-                      });
-                    });
+                    context.read<TasksCubit>().clearCompleted();
                   },
                   icon: const Icon(
                     Icons.delete_sweep_rounded,
@@ -494,8 +449,12 @@ class _UiTasksState extends State<UiTasks> {
     );
   }
 
-  Widget _buildItemRow(CheckboxItem item, int index) {
-    final bool hasFocus = item.node.hasFocus;
+  Widget _buildItemRow(TaskItem item, int index, List<TaskItem> tasks) {
+    final focusNode = _focusNodes[item.id];
+    final controller = _controllers[item.id];
+    if (focusNode == null || controller == null) return const SizedBox();
+
+    final bool hasFocus = focusNode.hasFocus;
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 150),
@@ -515,7 +474,6 @@ class _UiTasksState extends State<UiTasks> {
       ),
       child: Row(
         children: [
-          // Vertical indicator line
           AnimatedContainer(
             duration: const Duration(milliseconds: 150),
             width: 2.5,
@@ -526,12 +484,9 @@ class _UiTasksState extends State<UiTasks> {
             ),
           ),
           const SizedBox(width: 8),
-          // Custom Interactive Checkbox
           GestureDetector(
             onTap: () {
-              setState(() {
-                item.isChecked = !item.isChecked;
-              });
+              context.read<TasksCubit>().toggleTask(item.id);
             },
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 150),
@@ -561,36 +516,43 @@ class _UiTasksState extends State<UiTasks> {
             ),
           ),
           const SizedBox(width: 10),
-          // TextField with Keyboard Interceptors
           Expanded(
             child: Focus(
               onKeyEvent: (FocusNode node, KeyEvent event) {
                 if (event is KeyDownEvent) {
                   if (event.logicalKey == LogicalKeyboardKey.backspace) {
-                    final selection = item.controller.selection;
+                    final selection = controller.selection;
                     if (selection.isCollapsed && selection.start == 0) {
-                      _handleBackspace(index);
+                      _handleBackspace(index, tasks);
                       return KeyEventResult.handled;
                     }
                   } else if (event.logicalKey == LogicalKeyboardKey.enter) {
-                    _handleEnter(index);
+                    _handleEnter(index, tasks);
                     return KeyEventResult.handled;
                   } else if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
                     if (index > 0) {
-                      final prevItem = checkboxes[index - 1];
-                      prevItem.node.requestFocus();
-                      prevItem.controller.selection = TextSelection.collapsed(
-                        offset: prevItem.controller.text.length,
-                      );
+                      final prevItem = tasks[index - 1];
+                      final prevNode = _focusNodes[prevItem.id];
+                      final prevCtrl = _controllers[prevItem.id];
+                      if (prevNode != null && prevCtrl != null) {
+                        prevNode.requestFocus();
+                        prevCtrl.selection = TextSelection.collapsed(
+                          offset: prevCtrl.text.length,
+                        );
+                      }
                       return KeyEventResult.handled;
                     }
                   } else if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
-                    if (index < checkboxes.length - 1) {
-                      final nextItem = checkboxes[index + 1];
-                      nextItem.node.requestFocus();
-                      nextItem.controller.selection = TextSelection.collapsed(
-                        offset: nextItem.controller.text.length,
-                      );
+                    if (index < tasks.length - 1) {
+                      final nextItem = tasks[index + 1];
+                      final nextNode = _focusNodes[nextItem.id];
+                      final nextCtrl = _controllers[nextItem.id];
+                      if (nextNode != null && nextCtrl != null) {
+                        nextNode.requestFocus();
+                        nextCtrl.selection = TextSelection.collapsed(
+                          offset: nextCtrl.text.length,
+                        );
+                      }
                       return KeyEventResult.handled;
                     }
                   }
@@ -598,8 +560,8 @@ class _UiTasksState extends State<UiTasks> {
                 return KeyEventResult.ignored;
               },
               child: TextField(
-                controller: item.controller,
-                focusNode: item.node,
+                controller: controller,
+                focusNode: focusNode,
                 minLines: 1,
                 maxLines: 10,
                 style: TextStyle(
@@ -629,7 +591,6 @@ class _UiTasksState extends State<UiTasks> {
               ),
             ),
           ),
-          // Delete button
           IconButton(
             icon: Icon(
               Icons.close_rounded,
@@ -637,10 +598,7 @@ class _UiTasksState extends State<UiTasks> {
               size: 16,
             ),
             onPressed: () {
-              setState(() {
-                checkboxes.removeAt(index);
-              });
-              item.dispose();
+              context.read<TasksCubit>().deleteTask(item.id);
             },
             splashRadius: 14,
             tooltip: "Delete task",
@@ -695,20 +653,5 @@ class _UiTasksState extends State<UiTasks> {
         ),
       ),
     );
-  }
-}
-
-class CheckboxItem {
-  final TextEditingController controller;
-  final FocusNode node;
-  bool isChecked;
-
-  CheckboxItem({String text = "", this.isChecked = false})
-    : controller = TextEditingController(text: text),
-      node = FocusNode();
-
-  void dispose() {
-    controller.dispose();
-    node.dispose();
   }
 }

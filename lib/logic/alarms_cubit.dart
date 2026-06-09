@@ -1,30 +1,67 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:async';
 import 'dart:isolate';
 import 'package:alarm/alarm.dart';
-
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:mist/logic/alarmsetter.dart';
 import 'package:mist/logic/unviersalvariables.dart';
-import 'package:mist/uis/android/ui_remainder_notification.dart';
+import 'package:mist/repo/models.dart';
 import 'package:mist/uis/android/ui_alarm_notification.dart';
-import 'package:mist/uis/android/widgets/alarms_and_settings.dart';
-import 'package:path_provider/path_provider.dart';
+import 'package:mist/uis/android/ui_remainder_notification.dart';
 
-class AlarmsAndSettings extends ChangeNotifier {
-  static final AlarmsAndSettings instance = AlarmsAndSettings();
+class AlarmsState {
+  final List<Remainder> remainders;
+  final List<AlarmModal> alarms;
+  final Settingalarm settings;
+  final Map<String, int> remainingSeconds;
+  final Map<String, int> currentRepeatCounts;
+  final Set<String> visibleNotifications;
+  final bool isLoading;
 
-  List<Remainder> remainders = [];
-  List<AlarmModal> alarms = [];
-  Settingalarm settings = Settingalarm(vibrate: false);
+  AlarmsState({
+    this.remainders = const [],
+    this.alarms = const [],
+    Settingalarm? settings,
+    this.remainingSeconds = const {},
+    this.currentRepeatCounts = const {},
+    this.visibleNotifications = const {},
+    this.isLoading = true,
+  }) : settings = settings ?? Settingalarm(vibrate: true);
+
+  AlarmsState copyWith({
+    List<Remainder>? remainders,
+    List<AlarmModal>? alarms,
+    Settingalarm? settings,
+    Map<String, int>? remainingSeconds,
+    Map<String, int>? currentRepeatCounts,
+    Set<String>? visibleNotifications,
+    bool? isLoading,
+  }) {
+    return AlarmsState(
+      remainders: remainders ?? this.remainders,
+      alarms: alarms ?? this.alarms,
+      settings: settings ?? this.settings,
+      remainingSeconds: remainingSeconds ?? this.remainingSeconds,
+      currentRepeatCounts: currentRepeatCounts ?? this.currentRepeatCounts,
+      visibleNotifications: visibleNotifications ?? this.visibleNotifications,
+      isLoading: isLoading ?? this.isLoading,
+    );
+  }
+}
+
+class AlarmsCubit extends Cubit<AlarmsState> {
+  static late AlarmsCubit instance;
 
   // Background countdown isolate tracking
   final Map<String, Isolate> activeIsolates = {};
   final Map<String, ReceivePort> activeReceivePorts = {};
-  final Map<String, int> remainingSeconds = {};
-  final Map<String, int> currentRepeatCounts = {};
-  final Set<String> visibleNotifications = {};
+
+  AlarmsCubit() : super(AlarmsState()) {
+    instance = this;
+  }
 
   void startReminderIsolate(Remainder reminder) async {
     stopReminderIsolate(reminder.name);
@@ -44,8 +81,9 @@ class AlarmsAndSettings extends ChangeNotifier {
           SendPort childSendPort = message;
           childSendPort.send(reminder.durationSeconds);
         } else if (message is int) {
-          remainingSeconds[reminder.name] = message;
-          notifyListeners();
+          final updatedRemaining = Map<String, int>.from(state.remainingSeconds);
+          updatedRemaining[reminder.name] = message;
+          emit(state.copyWith(remainingSeconds: updatedRemaining));
 
           if (message <= 0) {
             stopReminderIsolate(reminder.name);
@@ -54,7 +92,7 @@ class AlarmsAndSettings extends ChangeNotifier {
         }
       });
     } catch (e) {
-      debugPrint("Error spawning isolate in singleton: $e");
+      debugPrint("Error spawning isolate in cubit: $e");
     }
   }
 
@@ -67,21 +105,26 @@ class AlarmsAndSettings extends ChangeNotifier {
       activeReceivePorts[name]?.close();
       activeReceivePorts.remove(name);
     }
-    remainingSeconds.remove(name);
-    notifyListeners();
+    final updatedRemaining = Map<String, int>.from(state.remainingSeconds);
+    updatedRemaining.remove(name);
+    emit(state.copyWith(remainingSeconds: updatedRemaining));
   }
 
   void _triggerReminderNotification(Remainder reminder) {
-    if (visibleNotifications.contains(reminder.name)) {
+    if (state.visibleNotifications.contains(reminder.name)) {
       return;
     }
 
-    visibleNotifications.add(reminder.name);
+    final updatedVisible = Set<String>.from(state.visibleNotifications);
+    updatedVisible.add(reminder.name);
+    emit(state.copyWith(visibleNotifications: updatedVisible));
 
     final context = Unviersalvariables().navigatorKey.currentContext;
     if (context == null) {
       debugPrint("Global context is null! Cannot push notification screen.");
-      visibleNotifications.remove(reminder.name);
+      final updatedVisible = Set<String>.from(state.visibleNotifications);
+      updatedVisible.remove(reminder.name);
+      emit(state.copyWith(visibleNotifications: updatedVisible));
       return;
     }
 
@@ -92,7 +135,9 @@ class AlarmsAndSettings extends ChangeNotifier {
           ),
         )
         .then((_) {
-          visibleNotifications.remove(reminder.name);
+          final updatedVisible = Set<String>.from(state.visibleNotifications);
+          updatedVisible.remove(reminder.name);
+          emit(state.copyWith(visibleNotifications: updatedVisible));
           _handleRepeatCycle(reminder);
         });
   }
@@ -102,24 +147,26 @@ class AlarmsAndSettings extends ChangeNotifier {
       reminder.isActive = false;
       updateRemainder(reminder);
     } else if (reminder.repeat == "Repeat X times") {
-      int remaining =
-          currentRepeatCounts[reminder.name] ?? reminder.repeatCount;
+      final updatedRepeatCounts = Map<String, int>.from(state.currentRepeatCounts);
+      int remaining = updatedRepeatCounts[reminder.name] ?? reminder.repeatCount;
       remaining--;
-      currentRepeatCounts[reminder.name] = remaining;
+      updatedRepeatCounts[reminder.name] = remaining;
+      emit(state.copyWith(currentRepeatCounts: updatedRepeatCounts));
 
       if (remaining > 0) {
         startReminderIsolate(reminder);
       } else {
         reminder.isActive = false;
         updateRemainder(reminder);
-        currentRepeatCounts.remove(reminder.name);
+        final updatedRepeatCounts = Map<String, int>.from(state.currentRepeatCounts);
+        updatedRepeatCounts.remove(reminder.name);
+        emit(state.copyWith(currentRepeatCounts: updatedRepeatCounts));
       }
     } else if (reminder.repeat == "Until Stopped") {
       startReminderIsolate(reminder);
     }
   }
 
-  // In-memory list of custom audio names (mock files)
   Future<List<String>> customAudios() async {
     Directory dir = await getApplicationDocumentsDirectory();
     String path = "${dir.path}/alarmsandremainder/";
@@ -169,33 +216,41 @@ class AlarmsAndSettings extends ChangeNotifier {
           json = await file.readAsString();
         }
         Map<String, dynamic> data = jsonDecode(json);
-        alarms = (data['alarms'] as List<dynamic>? ?? [])
+        final loadedAlarms = (data['alarms'] as List<dynamic>? ?? [])
             .map((e) => AlarmModal.fromJson(e as Map<String, dynamic>))
             .toList();
-        remainders = (data['remainders'] as List<dynamic>? ?? [])
+        final loadedRemainders = (data['remainders'] as List<dynamic>? ?? [])
             .map((e) => Remainder.fromJson(e as Map<String, dynamic>))
             .toList();
-        settings = Settingalarm.fromJson(
+        final loadedSettings = Settingalarm.fromJson(
           data['settings'] as Map<String, dynamic>? ?? {},
         );
 
-        // Restore background timers if active and not already running
-        for (var reminder in remainders) {
+        emit(state.copyWith(
+          alarms: loadedAlarms,
+          remainders: loadedRemainders,
+          settings: loadedSettings,
+          isLoading: false,
+        ));
+
+        // Restore background timers
+        for (var reminder in loadedRemainders) {
           if (reminder.isActive && !activeIsolates.containsKey(reminder.name)) {
-            currentRepeatCounts[reminder.name] = reminder.repeatCount;
+            final updatedRepeatCounts = Map<String, int>.from(state.currentRepeatCounts);
+            updatedRepeatCounts[reminder.name] = reminder.repeatCount;
+            emit(state.copyWith(currentRepeatCounts: updatedRepeatCounts));
             startReminderIsolate(reminder);
           }
         }
 
-        // Restore active alarms in native Alarm package to keep them in sync if not already scheduled
-        for (var alarm in alarms) {
+        // Restore active alarms in native Alarm package
+        for (var alarm in loadedAlarms) {
           if (alarm.isActive) {
             final uniqueId = Alarmsetter.instance.createuniqueid(alarm);
             final isScheduled = Alarm.scheduled.value.alarms.any(
               (a) => a.id == uniqueId,
             );
 
-            // Check if it is currently ringing or showing in the UI to prevent interrupting it
             final isRingingLocally = Alarm.ringing.value.alarms.any(
               (a) => a.id == uniqueId,
             );
@@ -221,6 +276,12 @@ class AlarmsAndSettings extends ChangeNotifier {
             'settings': Settingalarm(vibrate: true).toJson(),
           }),
         );
+        emit(state.copyWith(
+          alarms: [],
+          remainders: [],
+          settings: Settingalarm(vibrate: true),
+          isLoading: false,
+        ));
       }
     } catch (e) {
       debugPrint("Error in getData: $e");
@@ -235,9 +296,12 @@ class AlarmsAndSettings extends ChangeNotifier {
               'settings': Settingalarm(vibrate: true).toJson(),
             }),
           );
-          alarms = [];
-          remainders = [];
-          settings = Settingalarm(vibrate: true);
+          emit(state.copyWith(
+            alarms: [],
+            remainders: [],
+            settings: Settingalarm(vibrate: true),
+            isLoading: false,
+          ));
         } catch (err) {
           debugPrint("Failed to reset corrupted storage file: $err");
         }
@@ -251,9 +315,9 @@ class AlarmsAndSettings extends ChangeNotifier {
       File file = File("$path/alarms_and_settings.json");
       await file.writeAsString(
         jsonEncode({
-          'alarms': alarms.map((e) => e.toJson()).toList(),
-          'remainders': remainders.map((e) => e.toJson()).toList(),
-          'settings': settings.toJson(),
+          'alarms': state.alarms.map((e) => e.toJson()).toList(),
+          'remainders': state.remainders.map((e) => e.toJson()).toList(),
+          'settings': state.settings.toJson(),
         }),
       );
     } catch (e) {
@@ -262,95 +326,109 @@ class AlarmsAndSettings extends ChangeNotifier {
   }
 
   Future<void> addAlarm(AlarmModal alarm) async {
+    final updatedAlarms = List<AlarmModal>.from(state.alarms);
     final baseTitle = alarm.title;
-    bool check = alarms.any((element) => element.title == alarm.title);
+    bool check = updatedAlarms.any((element) => element.title == alarm.title);
     int i = 1;
     while (check) {
       alarm.title = "$baseTitle ($i)";
       i++;
-      check = alarms.any((element) => element.title == alarm.title);
+      check = updatedAlarms.any((element) => element.title == alarm.title);
     }
-    // Stop same time alarms natively first to prevent orphaned active alarms
-    for (final element in alarms.where(
+    for (final element in updatedAlarms.where(
       (e) => e.time == alarm.time && e.period == alarm.period,
     )) {
       await Alarmsetter.instance.stopAlarm(element);
     }
-    alarms.removeWhere(
+    updatedAlarms.removeWhere(
       (element) => element.time == alarm.time && element.period == alarm.period,
     );
-    alarms.add(alarm);
+    updatedAlarms.add(alarm);
     if (alarm.isActive) {
       await Alarmsetter.instance.setAlarm(alarm);
     }
+    emit(state.copyWith(alarms: updatedAlarms));
     await saveData();
-    notifyListeners();
   }
 
   Future<void> removeAlarm(String title) async {
-    final idx = alarms.indexWhere((element) => element.title == title);
+    final updatedAlarms = List<AlarmModal>.from(state.alarms);
+    final idx = updatedAlarms.indexWhere((element) => element.title == title);
     if (idx != -1) {
-      final alarm = alarms[idx];
+      final alarm = updatedAlarms[idx];
       await Alarmsetter.instance.stopAlarm(alarm);
-      alarms.removeAt(idx);
+      updatedAlarms.removeAt(idx);
+      emit(state.copyWith(alarms: updatedAlarms));
       await saveData();
-      notifyListeners();
     }
   }
 
   Future<void> updateAlarm(AlarmModal alarm, {String? oldTitle}) async {
+    final updatedAlarms = List<AlarmModal>.from(state.alarms);
     final searchTitle = oldTitle ?? alarm.title;
-    final idx = alarms.indexWhere((element) => element.title == searchTitle);
+    final idx = updatedAlarms.indexWhere((element) => element.title == searchTitle);
     if (idx != -1) {
-      final oldAlarm = alarms[idx];
+      final oldAlarm = updatedAlarms[idx];
       await Alarmsetter.instance.stopAlarm(oldAlarm);
-      alarms[idx] = alarm;
+      updatedAlarms[idx] = alarm;
       if (alarm.isActive) {
         await Alarmsetter.instance.setAlarm(alarm);
       }
+      emit(state.copyWith(alarms: updatedAlarms));
       await saveData();
-      notifyListeners();
     }
   }
 
   Future<void> addRemainder(Remainder remainder) async {
-    bool check = remainders.any((element) => element.name == remainder.name);
+    final updatedRemainders = List<Remainder>.from(state.remainders);
+    bool check = updatedRemainders.any((element) => element.name == remainder.name);
     int i = 1;
     while (check) {
       remainder.name = "${remainder.name} ($i)";
       i++;
-      check = remainders.any((element) => element.name == remainder.name);
+      check = updatedRemainders.any((element) => element.name == remainder.name);
     }
-    remainders.add(remainder);
+    updatedRemainders.add(remainder);
+    emit(state.copyWith(remainders: updatedRemainders));
     await saveData();
-    notifyListeners();
   }
 
   Future<void> removeRemainder(String name) async {
     stopReminderIsolate(name);
-    currentRepeatCounts.remove(name);
-    remainders.removeWhere((element) => element.name == name);
+    final updatedRepeatCounts = Map<String, int>.from(state.currentRepeatCounts);
+    updatedRepeatCounts.remove(name);
+    final updatedRemainders = List<Remainder>.from(state.remainders);
+    updatedRemainders.removeWhere((element) => element.name == name);
+    emit(state.copyWith(
+      remainders: updatedRemainders,
+      currentRepeatCounts: updatedRepeatCounts,
+    ));
     await saveData();
-    notifyListeners();
   }
 
   Future<void> updateRemainder(Remainder remainder, {String? oldName}) async {
+    final updatedRemainders = List<Remainder>.from(state.remainders);
     final searchName = oldName ?? remainder.name;
-    final idx = remainders.indexWhere((element) => element.name == searchName);
+    final idx = updatedRemainders.indexWhere((element) => element.name == searchName);
     if (idx != -1) {
       if (oldName != null && oldName != remainder.name) {
         stopReminderIsolate(oldName);
-        currentRepeatCounts.remove(oldName);
+        final updatedRepeatCounts = Map<String, int>.from(state.currentRepeatCounts);
+        updatedRepeatCounts.remove(oldName);
+        emit(state.copyWith(currentRepeatCounts: updatedRepeatCounts));
       }
-      remainders[idx] = remainder;
+      updatedRemainders[idx] = remainder;
+      emit(state.copyWith(remainders: updatedRemainders));
+
       if (remainder.isActive) {
         if (!activeIsolates.containsKey(remainder.name)) {
-          currentRepeatCounts[remainder.name] = remainder.repeatCount;
+          final updatedRepeatCounts = Map<String, int>.from(state.currentRepeatCounts);
+          updatedRepeatCounts[remainder.name] = remainder.repeatCount;
+          emit(state.copyWith(currentRepeatCounts: updatedRepeatCounts));
           startReminderIsolate(remainder);
         }
       }
       await saveData();
-      notifyListeners();
     }
   }
 
@@ -358,28 +436,29 @@ class AlarmsAndSettings extends ChangeNotifier {
     reminder.isActive = !reminder.isActive;
     await updateRemainder(reminder);
     if (reminder.isActive) {
-      currentRepeatCounts[reminder.name] = reminder.repeatCount;
+      final updatedRepeatCounts = Map<String, int>.from(state.currentRepeatCounts);
+      updatedRepeatCounts[reminder.name] = reminder.repeatCount;
+      emit(state.copyWith(currentRepeatCounts: updatedRepeatCounts));
       startReminderIsolate(reminder);
     } else {
       stopReminderIsolate(reminder.name);
-      currentRepeatCounts.remove(reminder.name);
+      final updatedRepeatCounts = Map<String, int>.from(state.currentRepeatCounts);
+      updatedRepeatCounts.remove(reminder.name);
+      emit(state.copyWith(currentRepeatCounts: updatedRepeatCounts));
     }
   }
 
   Future<void> saveSettings(Settingalarm newSettings) async {
-    settings = newSettings;
+    emit(state.copyWith(settings: newSettings));
     await saveData();
-    // Reschedule all active alarms to apply the new settings immediately
-    for (final alarm in alarms) {
+    for (final alarm in state.alarms) {
       if (alarm.isActive) {
         await Alarmsetter.instance.setAlarm(alarm);
       }
     }
-    notifyListeners();
   }
 }
 
-// Top-level function for Dart Isolate countdown
 void _isolateRemainderTimer(SendPort mainSendPort) {
   final childReceivePort = ReceivePort();
   mainSendPort.send(childReceivePort.sendPort);

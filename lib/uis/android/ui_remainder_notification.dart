@@ -1,7 +1,7 @@
 import 'dart:ui';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
-import 'package:mist/uis/android/widgets/alarms_and_settings.dart';
+import 'package:mist/repo/models.dart';
 
 class UiRemainderNotification extends StatefulWidget {
   final Remainder remainder;

@@ -1,5 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:mist/logic/unviersalvariables.dart';
+import 'package:mist/logic/navigation_cubit.dart';
+import 'package:mist/logic/folder_cubit.dart';
+import 'package:mist/logic/alarms_cubit.dart';
+import 'package:mist/logic/tasks_cubit.dart';
 import 'package:mist/uis/android/ui_home.dart';
 import 'package:mist/uis/android/widgets/image_canvas_widget.dart';
 import 'package:mist/uis/android/widgets/text_canvas_widget.dart';
@@ -42,7 +48,23 @@ Future<void> main() async {
           fontSize: 15,
         ),
       ),
-      child: const MainApp(),
+      child: MultiBlocProvider(
+        providers: [
+          BlocProvider<NavigationCubit>(
+            create: (context) => NavigationCubit(),
+          ),
+          BlocProvider<FolderCubit>(
+            create: (context) => FolderCubit(),
+          ),
+          BlocProvider<AlarmsCubit>(
+            create: (context) => AlarmsCubit()..getData(),
+          ),
+          BlocProvider<TasksCubit>(
+            create: (context) => TasksCubit(),
+          ),
+        ],
+        child: const MainApp(),
+      ),
     ),
   );
 }
@@ -56,6 +78,10 @@ class MainApp extends StatelessWidget {
       navigatorKey: Unviersalvariables().navigatorKey,
       debugShowCheckedModeBanner: false,
       // showPerformanceOverlay: true,
+      shortcuts: <ShortcutActivator, Intent>{
+        SingleActivator(control: true, LogicalKeyboardKey.keyS):
+            VoidCallbackIntent(() {}),
+      },
       theme: ThemeData.dark(),
       home: const UIHome(),
     );

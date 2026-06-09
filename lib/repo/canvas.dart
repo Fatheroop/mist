@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -13,9 +14,8 @@ import 'package:flutter/material.dart';
 /// Every concrete subclass must call
 /// `CanvasWidgetChild.registerType('myType', (map) => MyType.fromMap(map))`
 /// once at startup (usually from `main()` or a static initialiser).
-typedef CanvasChildFactory = CanvasWidgetChild Function(
-  Map<String, dynamic> map,
-);
+typedef CanvasChildFactory =
+    CanvasWidgetChild Function(Map<String, dynamic> map);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CanvasWidgetChild — abstract base for every embeddable node payload
@@ -148,17 +148,17 @@ class CanvasFileManager {
   /// Load all nodes from the given [file].
   /// Returns an empty list if the file does not exist or is empty.
   static Future<List<CanvasNodeData>> load(File file) async {
-    if (!await file.exists()) return [];
-
-    final json = await file.readAsString();
-    if (json.trim().isEmpty) return [];
-
-    final List<dynamic> list = jsonDecode(json) as List<dynamic>;
-    return list
-        .map(
-          (item) => CanvasNodeData.fromMap(item as Map<String, dynamic>),
-        )
-        .toList();
+    try {
+      if (!await file.exists()) return [];
+      final json = await file.readAsString();
+      if (json.trim().isEmpty) return [];
+      final List<dynamic> list = jsonDecode(json) as List<dynamic>;
+      return list
+          .map((item) => CanvasNodeData.fromMap(item as Map<String, dynamic>))
+          .toList();
+    } catch (e) {
+      return [];
+    }
   }
 
   /// Delete the canvas file.

@@ -2,8 +2,8 @@ import 'dart:ui';
 import 'package:alarm/alarm.dart';
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
-import 'package:mist/logic/alarmsandremainder.dart';
-import 'package:mist/uis/android/widgets/alarms_and_settings.dart';
+import 'package:mist/logic/alarms_cubit.dart';
+import 'package:mist/repo/models.dart';
 
 class UiAlarmNotification extends StatefulWidget {
   final AlarmModal alarm;
@@ -271,7 +271,7 @@ class _UiAlarmNotificationState extends State<UiAlarmNotification>
                             // Turn active off in state manager if repeatType is Once
                             // Keep active and reschedule if it's a repeating alarm
                             widget.alarm.isActive = widget.alarm.repeatType != "Once";
-                            await AlarmsAndSettings.instance.updateAlarm(
+                            await AlarmsCubit.instance.updateAlarm(
                               widget.alarm,
                             );
                             if (context.mounted) {
